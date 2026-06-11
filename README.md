@@ -223,8 +223,8 @@ Then Codex CLI works inside that folder.
 For the graph-driven new-project flow, use `task_status="new"` or
 `--task-status new`. The new-project route creates or verifies the named
 project folder, writes `task.md` and `business requirements.md`, initializes
-git, creates `.venv`, `.env`, `config.yml`, `.gitignore`, and `README.md`,
-then sends Codex a focused implementation prompt.
+git, creates `.venv`, `.env`, `config.yml`, `requirements.txt`, `.gitignore`,
+and `README.md`, then sends Codex a focused implementation prompt.
 
 For full local developer access, use:
 

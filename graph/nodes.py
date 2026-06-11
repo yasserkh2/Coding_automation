@@ -206,6 +206,10 @@ class CreateEnvironmentFilesNode:
             "project:\n  name: " + project_name_from_state(state) + "\n",
         )
         write_text_if_missing(
+            project_dir / "requirements.txt",
+            "# Add Python package dependencies here.\n",
+        )
+        write_text_if_missing(
             project_dir / ".gitignore",
             "\n".join(
                 [
@@ -291,6 +295,7 @@ def build_new_project_prompt(
         "- Keep task.md and business requirements.md aligned with the work.\n"
         "- Preserve .env as placeholders only; do not add real secrets.\n"
         "- Update config.yml with non-secret defaults needed by the app.\n"
+        "- Use requirements.txt for Python package dependencies; leave it as a placeholder if no packages are needed.\n"
         "- Update README.md with concrete setup, run, and test commands.\n"
         "- Add focused tests when the stack supports tests.\n"
         "- Keep the setup practical and minimal.\n\n"
