@@ -1,0 +1,25 @@
+[project]
+name = "coding-automation"
+version = "0.1.0"
+description = "Local Codex CLI automation through OpenRouter."
+requires-python = ">=3.12"
+dependencies = [
+  "python-dotenv>=1.0.1",
+  "openai>=1.86.0",
+  "langchain>=0.3.25",
+  "langchain-core>=0.3.65",
+  "langgraph>=0.4.8",
+  "pydantic>=2.11.5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4.0",
+]
+
+[project.scripts]
+codex-openrouter = "codex.cli:main"
+speak-with-codex = "codex.terminal:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

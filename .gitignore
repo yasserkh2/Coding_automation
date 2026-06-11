@@ -1,0 +1,5 @@
+.env
+.codex-home/
+.venv/
+__pycache__/
+*.pyc

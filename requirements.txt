@@ -1,0 +1,11 @@
+python-dotenv>=1.0.1
+openai>=1.86.0
+langchain>=0.3.25
+langchain-core>=0.3.65
+langgraph>=0.4.8
+pydantic>=2.11.5
+pytest>=8.4.0
+
+# Codex CLI is an external command, not a Python package.
+# Check it with: codex --version
+# Start it with: codex
