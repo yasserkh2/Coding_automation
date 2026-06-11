@@ -34,6 +34,8 @@ codex/
   config.py       Stores immutable OpenRouter/Codex settings.
   environment.py  Loads .env values.
   ports.py        Interface that graph code should depend on.
+  project_config.py
+                  Loads config.yml and merges it with built-in defaults.
   runner.py       Builds and runs codex exec commands.
   service.py      High-level speak_with_codex() function and CodexService class.
   terminal.py     Terminal prompt app.
@@ -54,7 +56,7 @@ Working:
 - `scripts/talk-to-codex-openrouter.sh` starts an interactive Codex CLI session with OpenRouter config.
 - `scripts/create-project-with-codex.sh` creates project folders under `projects/` and sends prompts to Codex CLI.
 - `--full-access` mode is available for local developer-style access.
-- `.codex-home/config.toml` stores the project Codex defaults for OpenRouter.
+- `config.yml` stores shared project, graph, and Codex defaults.
 - `graph/` contains a starter LangGraph workflow that calls the Codex adapter.
 - `pyproject.toml` defines the package metadata and script entry points.
 - `tests/` contains unit tests for the package and graph structure.
@@ -77,7 +79,7 @@ Not built yet:
 config.yml
   Active non-secret defaults loaded by Codex and LangGraph code.
 
-test-codex-openrouter.sh
+scripts/test-codex-openrouter.sh
   Small smoke test. It asks Codex to reply OK only.
 
 scripts/codex_cli_tool.py
@@ -88,6 +90,9 @@ codex/
 
 graph/
   Starter LangGraph workflow package.
+
+graph.png
+  Rendered image of the current LangGraph workflow.
 
 tests/
   Unit tests for binary resolution, command construction, and graph workflow.
@@ -215,6 +220,12 @@ projects/todo-app/
 
 Then Codex CLI works inside that folder.
 
+For the graph-driven new-project flow, use `task_status="new"` or
+`--task-status new`. The new-project route creates or verifies the named
+project folder, writes `task.md` and `business requirements.md`, initializes
+git, creates `.venv`, `.env`, `config.yml`, `.gitignore`, and `README.md`,
+then sends Codex a focused implementation prompt.
+
 For full local developer access, use:
 
 ```bash
@@ -326,7 +337,18 @@ codex --version
 
 ## LangGraph Workflow
 
-The starter graph begins with `project_router`. It routes by `task_status` and sends `task_md` to either the new-project or enhance-project node.
+The starter graph begins with `project_router`. It routes by `task_status`.
+Enhancement tasks go directly to `enhance_project`. New-project tasks run:
+
+```text
+new_project
+  -> create_project_dir
+  -> create_project_docs
+  -> initialize_git
+  -> initialize_venv
+  -> create_environment_files
+  -> implement_new_project
+```
 
 ```python
 from graph import run_coding_graph
@@ -335,6 +357,7 @@ from graph import run_coding_graph
 result = run_coding_graph(
     "# Task\nCreate a file named hello.md with a short greeting.",
     project_dir="./projects/demo",
+    project_name="demo",
     task_status="new",
     business_requirement="Build the first version of the demo project.",
     full_access=True,
@@ -347,7 +370,14 @@ You can also run it from the terminal:
 
 ```bash
 python3 -m graph.cli "# Task
-Create a file named hello.md with a short greeting." --project-dir ./projects/demo --task-status new --business-requirement "Build the first version of the demo project."
+Create a file named hello.md with a short greeting." --project-dir ./projects/demo --project-name demo --task-status new --business-requirement "Build the first version of the demo project."
+```
+
+If the package is installed, you can use the console script:
+
+```bash
+coding-graph "# Task
+Create a file named hello.md with a short greeting." --project-dir ./projects/demo --project-name demo --task-status new --business-requirement "Build the first version of the demo project."
 ```
 
 Use `--config ./path/to/config.yml` to run the graph with another YAML config file.
@@ -399,13 +429,13 @@ Then type your prompt and press `Ctrl+D` when finished.
 Run:
 
 ```bash
-python3 -m unittest discover -s tests
+.venv/bin/python -m pytest
 ```
 
 Expected result:
 
 ```text
-OK
+11 passed
 ```
 
 The manager agent should be responsible for:

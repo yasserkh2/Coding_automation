@@ -24,23 +24,70 @@ class FakeSpeaker:
 class CodingGraphTests(unittest.TestCase):
     def test_graph_routes_new_project_task(self) -> None:
         speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
         result = run_coding_graph(
             "# Task\nCreate a file",
-            project_dir="projects/demo",
+            project_dir=project_dir,
             full_access=True,
             task_status="new",
             business_requirement="Build the first version of the demo app.",
+            project_name="demo",
             speaker=speaker,
         )
 
         self.assertEqual(result["task_type"], "new_project")
+        self.assertEqual(
+            result["project_setup"],
+            [
+                "new_project",
+                "create_project_dir",
+                "create_project_docs",
+                "initialize_git",
+                "initialize_venv",
+                "create_environment_files",
+            ],
+        )
+        self.assertTrue(project_dir.exists())
+        self.assertTrue((project_dir / "task.md").exists())
+        self.assertTrue((project_dir / "business requirements.md").exists())
+        self.assertTrue((project_dir / ".git").exists())
+        self.assertTrue((project_dir / ".venv").exists())
+        self.assertTrue((project_dir / ".env").exists())
+        self.assertTrue((project_dir / "config.yml").exists())
+        self.assertTrue((project_dir / ".gitignore").exists())
+        self.assertTrue((project_dir / "README.md").exists())
         self.assertEqual(result["response"], f"handled: {speaker.calls[0][0]}")
         self.assertIn("first task for a new project", speaker.calls[0][0])
+        self.assertIn("already prepared the base project environment", speaker.calls[0][0])
+        self.assertIn("Project name:\ndemo", speaker.calls[0][0])
+        self.assertIn(f"Project directory:\n{project_dir}", speaker.calls[0][0])
+        self.assertIn("- create_project_dir", speaker.calls[0][0])
+        self.assertIn("- create_project_docs", speaker.calls[0][0])
+        self.assertIn("- initialize_git", speaker.calls[0][0])
+        self.assertIn("- initialize_venv", speaker.calls[0][0])
+        self.assertIn("- create_environment_files", speaker.calls[0][0])
         self.assertIn("Business requirement:", speaker.calls[0][0])
         self.assertIn("Build the first version", speaker.calls[0][0])
         self.assertIn("task.md:", speaker.calls[0][0])
         self.assertIn("Create a file", speaker.calls[0][0])
-        self.assertEqual(speaker.calls[0][1:], ("projects/demo", True))
+        self.assertEqual(speaker.calls[0][1:], (str(project_dir), True))
+
+    def test_graph_derives_new_project_name_from_project_dir(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "derived-demo"
+        run_coding_graph(
+            "# Task\nCreate a file",
+            project_dir=project_dir,
+            task_status="new",
+            business_requirement="Build a derived-name app.",
+            speaker=speaker,
+        )
+
+        self.assertIn("Project name:\nderived-demo", speaker.calls[0][0])
 
     def test_graph_routes_existing_project_task_by_default(self) -> None:
         speaker = FakeSpeaker()
@@ -77,6 +124,8 @@ class CodingGraphTests(unittest.TestCase):
 
         self.assertIn("initialize_project", node_names)
         self.assertIn("improve_project", node_names)
+        self.assertIn("create_project_dir", node_names)
+        self.assertIn("implement_new_project", node_names)
 
     def create_temp_config(self) -> str:
         temp_dir = tempfile.TemporaryDirectory()

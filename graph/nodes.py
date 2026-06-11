@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
+from venv import EnvBuilder
 
 from codex.ports import CodexSpeaker
 
@@ -34,6 +37,36 @@ def require_business_requirement(state: CodingState) -> str:
     if not business_requirement or not business_requirement.strip():
         raise ValueError("CodingState.business_requirement is required for new tasks.")
     return business_requirement.strip()
+
+
+def project_name_from_state(state: CodingState) -> str:
+    """Return the requested new-project folder name when it can be inferred."""
+
+    project_name = state.get("project_name")
+    if project_name and project_name.strip():
+        return project_name.strip()
+
+    project_dir = state.get("project_dir")
+    if project_dir and str(project_dir).strip():
+        return Path(project_dir).name
+
+    return "the requested project"
+
+
+def project_dir_from_state(state: CodingState) -> Path:
+    """Return the concrete project directory for setup work."""
+
+    project_dir = state.get("project_dir")
+    if project_dir and str(project_dir).strip():
+        return Path(project_dir)
+
+    return Path("projects") / project_name_from_state(state)
+
+
+def append_setup_step(state: CodingState, step: str) -> list[str]:
+    """Return project setup history with a new completed step."""
+
+    return [*(state.get("project_setup") or []), step]
 
 
 DEFAULT_ROUTES: dict[TaskStatus, TaskType] = {
@@ -90,7 +123,116 @@ class ProjectRouterNode:
 
 @dataclass(frozen=True)
 class NewProjectNode:
-    """Run the first implementation task for a new project."""
+    """Prepare state for first-task project initialization."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        project_dir = project_dir_from_state(state)
+        return {
+            "project_name": project_name_from_state(state),
+            "project_dir": str(project_dir),
+            "project_setup": append_setup_step(state, "new_project"),
+        }
+
+
+@dataclass(frozen=True)
+class CreateProjectDirectoryNode:
+    """Create the project directory when it does not exist."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        project_dir = project_dir_from_state(state)
+        project_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "project_dir": str(project_dir),
+            "project_setup": append_setup_step(state, "create_project_dir"),
+        }
+
+
+@dataclass(frozen=True)
+class CreateProjectDocsNode:
+    """Create the task and business requirement documents."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        project_dir = project_dir_from_state(state)
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "task.md").write_text(require_task_md(state) + "\n", encoding="utf-8")
+        (project_dir / "business requirements.md").write_text(
+            require_business_requirement(state) + "\n",
+            encoding="utf-8",
+        )
+        return {"project_setup": append_setup_step(state, "create_project_docs")}
+
+
+@dataclass(frozen=True)
+class InitializeGitNode:
+    """Initialize git in the project directory when needed."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        project_dir = project_dir_from_state(state)
+        if not (project_dir / ".git").exists():
+            subprocess.run(
+                ["git", "init"],
+                cwd=project_dir,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+        return {"project_setup": append_setup_step(state, "initialize_git")}
+
+
+@dataclass(frozen=True)
+class InitializeVenvNode:
+    """Create a Python virtual environment for the new project."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        project_dir = project_dir_from_state(state)
+        venv_dir = project_dir / ".venv"
+        if not venv_dir.exists():
+            EnvBuilder(with_pip=True).create(venv_dir)
+        return {"project_setup": append_setup_step(state, "initialize_venv")}
+
+
+@dataclass(frozen=True)
+class CreateEnvironmentFilesNode:
+    """Create local environment and config defaults."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        project_dir = project_dir_from_state(state)
+        write_text_if_missing(
+            project_dir / ".env",
+            "# Local secrets and machine-specific settings.\n",
+        )
+        write_text_if_missing(
+            project_dir / "config.yml",
+            "project:\n  name: " + project_name_from_state(state) + "\n",
+        )
+        write_text_if_missing(
+            project_dir / ".gitignore",
+            "\n".join(
+                [
+                    ".env",
+                    ".venv/",
+                    "__pycache__/",
+                    ".pytest_cache/",
+                    "*.pyc",
+                    "dist/",
+                    "build/",
+                    "*.egg-info/",
+                    "*.log",
+                    ".DS_Store",
+                    "",
+                ]
+            ),
+        )
+        write_text_if_missing(
+            project_dir / "README.md",
+            "# " + project_name_from_state(state) + "\n\n## Setup\n\n## Run\n\n## Test\n",
+        )
+        return {"project_setup": append_setup_step(state, "create_environment_files")}
+
+
+@dataclass(frozen=True)
+class ImplementNewProjectNode:
+    """Ask Codex to implement the first task after setup files exist."""
 
     speaker: CodexSpeaker
 
@@ -98,6 +240,9 @@ class NewProjectNode:
         task_prompt = build_new_project_prompt(
             require_business_requirement(state),
             require_task_md(state),
+            project_name_from_state(state),
+            state.get("project_dir"),
+            state.get("project_setup") or [],
         )
         response = self.speaker.speak(
             task_prompt,
@@ -123,15 +268,42 @@ class EnhanceProjectNode:
         return {"response": response}
 
 
-def build_new_project_prompt(business_requirement: str, task_md: str) -> str:
+def build_new_project_prompt(
+    business_requirement: str,
+    task_md: str,
+    project_name: str = "the requested project",
+    project_dir: str | Path | None = None,
+    project_setup: list[str] | None = None,
+) -> str:
     """Build the Codex prompt for first-task project initialization."""
 
+    project_location = f"\nProject directory:\n{project_dir}\n" if project_dir else ""
+    setup_summary = "\n".join(f"- {step}" for step in (project_setup or []))
     return (
         "This is the first task for a new project. "
-        "Create the initial project structure before implementing the request.\n\n"
+        "The graph has already prepared the base project environment. "
+        "Inspect it, complete any stack-specific setup that is still missing, "
+        "then implement the request.\n\n"
+        f"Project name:\n{project_name}\n"
+        f"{project_location}\n"
+        f"Completed setup steps:\n{setup_summary}\n\n"
+        "Implementation requirements:\n"
+        "- Keep task.md and business requirements.md aligned with the work.\n"
+        "- Preserve .env as placeholders only; do not add real secrets.\n"
+        "- Update config.yml with non-secret defaults needed by the app.\n"
+        "- Update README.md with concrete setup, run, and test commands.\n"
+        "- Add focused tests when the stack supports tests.\n"
+        "- Keep the setup practical and minimal.\n\n"
         f"Business requirement:\n{business_requirement}\n\n"
         f"task.md:\n{task_md}"
     )
+
+
+def write_text_if_missing(path: Path, text: str) -> None:
+    """Write a text file without overwriting user or previous generated content."""
+
+    if not path.exists():
+        path.write_text(text, encoding="utf-8")
 
 
 def build_enhance_project_prompt(task_md: str) -> str:

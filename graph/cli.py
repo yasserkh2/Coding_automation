@@ -25,6 +25,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--business-requirement",
         help="Business requirement text. Required when --task-status new.",
     )
+    parser.add_argument(
+        "--project-name",
+        help="Folder name to create or verify when --task-status new.",
+    )
     parser.add_argument("--config", type=Path, help="Path to an alternate config.yml file.")
     return parser
 
@@ -39,6 +43,7 @@ def main() -> None:
         args.full_access,
         args.task_status,
         args.business_requirement,
+        args.project_name,
         config_path=args.config,
     )
     print(result.get("response", ""))
