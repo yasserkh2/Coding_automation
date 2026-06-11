@@ -16,6 +16,7 @@ from .nodes import (
     CreateProjectDirectoryNode,
     CreateProjectDocsNode,
     EnhanceProjectNode,
+    FinalizeNewProjectNode,
     ImplementNewProjectNode,
     InitializeGitNode,
     InitializeVenvNode,
@@ -33,6 +34,7 @@ DEFAULT_INITIALIZE_GIT = "initialize_git"
 DEFAULT_INITIALIZE_VENV = "initialize_venv"
 DEFAULT_CREATE_ENVIRONMENT_FILES = "create_environment_files"
 DEFAULT_IMPLEMENT_NEW_PROJECT = "implement_new_project"
+DEFAULT_FINALIZE_NEW_PROJECT = "finalize_new_project"
 DEFAULT_ENHANCE_PROJECT = "enhance_project"
 
 
@@ -76,6 +78,7 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_node(DEFAULT_INITIALIZE_VENV, InitializeVenvNode())
     graph.add_node(DEFAULT_CREATE_ENVIRONMENT_FILES, CreateEnvironmentFilesNode())
     graph.add_node(DEFAULT_IMPLEMENT_NEW_PROJECT, ImplementNewProjectNode(codex_speaker))
+    graph.add_node(DEFAULT_FINALIZE_NEW_PROJECT, FinalizeNewProjectNode())
     graph.add_node(enhance_project, EnhanceProjectNode(codex_speaker))
     graph.set_entry_point(project_router)
     graph.add_conditional_edges(
@@ -92,7 +95,8 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_edge(DEFAULT_INITIALIZE_GIT, DEFAULT_INITIALIZE_VENV)
     graph.add_edge(DEFAULT_INITIALIZE_VENV, DEFAULT_CREATE_ENVIRONMENT_FILES)
     graph.add_edge(DEFAULT_CREATE_ENVIRONMENT_FILES, DEFAULT_IMPLEMENT_NEW_PROJECT)
-    graph.add_edge(DEFAULT_IMPLEMENT_NEW_PROJECT, END)
+    graph.add_edge(DEFAULT_IMPLEMENT_NEW_PROJECT, DEFAULT_FINALIZE_NEW_PROJECT)
+    graph.add_edge(DEFAULT_FINALIZE_NEW_PROJECT, END)
     graph.add_edge(enhance_project, END)
     return graph.compile()
 

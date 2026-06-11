@@ -349,7 +349,46 @@ new_project
   -> initialize_venv
   -> create_environment_files
   -> implement_new_project
+  -> finalize_new_project
 ```
+
+`implement_new_project` is the only Codex call in this branch. It asks Codex
+to update `Ai_Task.md` with a concise summary before finishing. The
+`finalize_new_project` node is local; it records the graph setup summary in
+`Ai_Task.md` without starting another Codex session.
+
+All nodes before `implement_new_project` are local Python setup nodes. They do
+not talk to Codex. The new-project branch sends exactly one filled prompt to
+Codex, containing:
+
+```text
+project_name
+project_dir
+completed setup steps
+business_requirement
+task.md
+instructions to update Ai_Task.md before finishing
+```
+
+The local setup nodes create this baseline environment:
+
+```text
+task.md
+Ai_Task.md
+business requirements.md
+.git/
+.venv/
+.env
+config.yml
+requirements.txt
+.gitignore
+README.md
+```
+
+Codex is instructed not to create extra directories, packages, apps, tests, or
+project files unless `task.md` explicitly asks for them. If `task.md` only asks
+to initialize the environment, Codex should stop after verifying and updating
+the prepared files.
 
 ```python
 from graph import run_coding_graph

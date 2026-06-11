@@ -308,9 +308,37 @@ def build_new_project_prompt(
         "- Update README.md with concrete setup, run, and test commands.\n"
         "- Add focused tests when the stack supports tests.\n"
         "- Keep the setup practical and minimal.\n\n"
+        "Final AI handoff update:\n"
+        "- Before finishing, update Ai_Task.md in this same Codex session with a concise summary of what was done.\n"
+        "- Include the graph setup steps, any files you changed, and anything intentionally left untouched.\n\n"
         f"Business requirement:\n{business_requirement}\n\n"
         f"task.md:\n{task_md}"
     )
+
+
+@dataclass(frozen=True)
+class FinalizeNewProjectNode:
+    """Record the graph-level new-project setup summary in Ai_Task.md."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        project_dir = project_dir_from_state(state)
+        ai_task_path = project_dir / "Ai_Task.md"
+        existing = ai_task_path.read_text(encoding="utf-8") if ai_task_path.exists() else ""
+        marker = "## Graph Setup Summary"
+        if marker not in existing:
+            setup_steps = "\n".join(
+                f"- {step}" for step in [*(state.get("project_setup") or []), "finalize_new_project"]
+            )
+            summary = (
+                "\n\n"
+                f"{marker}\n\n"
+                "The new-project graph completed these setup nodes:\n\n"
+                f"{setup_steps}\n\n"
+                "The Codex implementation step was requested to update this file in the same Codex session.\n"
+            )
+            ai_task_path.write_text(existing.rstrip() + summary, encoding="utf-8")
+
+        return {"project_setup": append_setup_step(state, "finalize_new_project")}
 
 
 def write_text_if_missing(path: Path, text: str) -> None:

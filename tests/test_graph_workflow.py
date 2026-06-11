@@ -47,6 +47,7 @@ class CodingGraphTests(unittest.TestCase):
                 "initialize_git",
                 "initialize_venv",
                 "create_environment_files",
+                "finalize_new_project",
             ],
         )
         self.assertTrue(project_dir.exists())
@@ -60,6 +61,9 @@ class CodingGraphTests(unittest.TestCase):
         self.assertTrue((project_dir / "requirements.txt").exists())
         self.assertTrue((project_dir / ".gitignore").exists())
         self.assertTrue((project_dir / "README.md").exists())
+        self.assertIn("## Graph Setup Summary", (project_dir / "Ai_Task.md").read_text(encoding="utf-8"))
+        self.assertIn("finalize_new_project", result["project_setup"])
+        self.assertEqual(len(speaker.calls), 1)
         self.assertEqual(result["response"], f"handled: {speaker.calls[0][0]}")
         self.assertIn("first task for a new project", speaker.calls[0][0])
         self.assertIn("already prepared the base project environment", speaker.calls[0][0])
@@ -73,6 +77,7 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("Do not create extra directories", speaker.calls[0][0])
         self.assertIn("If task.md only asks to initialize the environment", speaker.calls[0][0])
         self.assertIn("Use Ai_Task.md as the AI handoff file", speaker.calls[0][0])
+        self.assertIn("Before finishing, update Ai_Task.md in this same Codex session", speaker.calls[0][0])
         self.assertIn("Use requirements.txt for Python package dependencies", speaker.calls[0][0])
         self.assertIn("Business requirement:", speaker.calls[0][0])
         self.assertIn("Build the first version", speaker.calls[0][0])
@@ -132,6 +137,7 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("improve_project", node_names)
         self.assertIn("create_project_dir", node_names)
         self.assertIn("implement_new_project", node_names)
+        self.assertIn("finalize_new_project", node_names)
 
     def create_temp_config(self) -> str:
         temp_dir = tempfile.TemporaryDirectory()
