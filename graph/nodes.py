@@ -155,6 +155,12 @@ class CreateProjectDocsNode:
         project_dir = project_dir_from_state(state)
         project_dir.mkdir(parents=True, exist_ok=True)
         (project_dir / "task.md").write_text(require_task_md(state) + "\n", encoding="utf-8")
+        (project_dir / "Ai_Task.md").write_text(
+            "# AI Task\n\n"
+            "Initialize the project environment and follow task.md. "
+            "Do not create application code unless task.md explicitly asks for it.\n",
+            encoding="utf-8",
+        )
         (project_dir / "business requirements.md").write_text(
             require_business_requirement(state) + "\n",
             encoding="utf-8",
@@ -292,6 +298,9 @@ def build_new_project_prompt(
         f"{project_location}\n"
         f"Completed setup steps:\n{setup_summary}\n\n"
         "Implementation requirements:\n"
+        "- Do not create extra directories, packages, apps, tests, or project files unless task.md explicitly asks for them.\n"
+        "- If task.md only asks to initialize the environment, stop after verifying the prepared files.\n"
+        "- Use Ai_Task.md as the AI handoff file for initialization instructions and keep it aligned with task.md.\n"
         "- Keep task.md and business requirements.md aligned with the work.\n"
         "- Preserve .env as placeholders only; do not add real secrets.\n"
         "- Update config.yml with non-secret defaults needed by the app.\n"
