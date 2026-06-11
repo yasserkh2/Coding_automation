@@ -20,7 +20,7 @@ class CodexCliRunner:
         dotenv_loader: DotenvLoader | None = None,
         binary_resolver: CodexBinaryResolver | None = None,
     ) -> None:
-        self.config = config or CodexConfig()
+        self.config = config or CodexConfig.from_project_config()
         self.dotenv_loader = dotenv_loader or DotenvLoader(self.config.env_file)
         self.binary_resolver = binary_resolver or CodexBinaryResolver()
 

@@ -24,17 +24,22 @@ We are using **Codex CLI**, not the Codex SDK.
 
 Codex CLI is easier to test, script, and connect to a manager agent. The Python package in `codex/` calls `codex exec` through `subprocess`, so LangGraph or LangChain can treat Codex like a normal tool.
 
-The code is now organized with small classes:
+The code is kept directly in this project folder:
 
 ```text
 codex/
+  __init__.py     Public package exports.
   binary.py       Finds a usable Codex CLI binary and avoids the broken Snap binary when possible.
+  cli.py          One-shot CLI entry point.
   config.py       Stores immutable OpenRouter/Codex settings.
   environment.py  Loads .env values.
+  ports.py        Interface that graph code should depend on.
   runner.py       Builds and runs codex exec commands.
   service.py      High-level speak_with_codex() function and CodexService class.
   terminal.py     Terminal prompt app.
-  cli.py          One-shot CLI entry point.
+
+graph/
+  Starter LangGraph coding workflow.
 ```
 
 ## Current Status
@@ -46,13 +51,13 @@ Working:
 - `.env` is used for `OPENROUTER_API_KEY`.
 - The smoke test succeeded with `OK`.
 - The structured `codex/` package successfully called Codex CLI through OpenRouter.
-- `talk-to-codex-openrouter.sh` starts an interactive Codex CLI session with OpenRouter config.
-- `create-project-with-codex.sh` creates project folders under `projects/` and sends prompts to Codex CLI.
+- `scripts/talk-to-codex-openrouter.sh` starts an interactive Codex CLI session with OpenRouter config.
+- `scripts/create-project-with-codex.sh` creates project folders under `projects/` and sends prompts to Codex CLI.
 - `--full-access` mode is available for local developer-style access.
 - `.codex-home/config.toml` stores the project Codex defaults for OpenRouter.
-- `requirements.txt` lists Python libraries for the future manager/orchestration layer.
+- `graph/` contains a starter LangGraph workflow that calls the Codex adapter.
 - `pyproject.toml` defines the package metadata and script entry points.
-- `tests/` contains unit tests for the package structure.
+- `tests/` contains unit tests for the package and graph structure.
 
 Not built yet:
 
@@ -69,29 +74,38 @@ Not built yet:
 .env
   Stores OPENROUTER_API_KEY locally.
 
+config.yml
+  Active non-secret defaults loaded by Codex and LangGraph code.
+
 test-codex-openrouter.sh
   Small smoke test. It asks Codex to reply OK only.
 
-codex_cli_tool.py
+scripts/codex_cli_tool.py
   Backward-compatible entry point that re-exports the package functions.
 
 codex/
-  Main Python package, organized with focused classes.
+  Codex CLI adapter package.
+
+graph/
+  Starter LangGraph workflow package.
 
 tests/
-  Unit tests for binary resolution and command construction.
+  Unit tests for binary resolution, command construction, and graph workflow.
 
-talk-to-codex-openrouter.sh
+scripts/talk-to-codex-openrouter.sh
   Interactive Codex CLI launcher that loads .env and uses OpenRouter.
 
-write-with-codex-cli.sh
+scripts/write-with-codex-cli.sh
   Shell helper for asking Codex CLI to write code in this folder.
 
-create-project-with-codex.sh
+scripts/create-project-with-codex.sh
   Creates a project folder under projects/ and asks Codex CLI to work there.
 
+scripts/speak-with-codex.py
+  Terminal prompt wrapper around speak_with_codex().
+
 requirements.txt
-  Python dependencies for the future manager/orchestration layer.
+  Python dependencies for the Codex adapter, YAML config loading, and LangGraph workflow.
 
 pyproject.toml
   Python project metadata, optional dev dependency, and console script definitions.
@@ -112,6 +126,8 @@ OPENROUTER_API_KEY="sk-or-xxxxx"
 ```
 
 The `.env` file is ignored by Git.
+
+Shared project defaults live in `config.yml`. Codex settings, graph route names, and default project paths are loaded from this file. Do not put API keys or secrets there.
 
 Create a Python virtual environment:
 
@@ -136,7 +152,7 @@ python -m pip install -r requirements.txt
 Run:
 
 ```bash
-./test-codex-openrouter.sh
+./scripts/test-codex-openrouter.sh
 ```
 
 Expected result:
@@ -162,7 +178,7 @@ OK
 Run:
 
 ```bash
-./write-with-codex-cli.sh "Create a small Python CLI app here with tests and a README."
+./scripts/write-with-codex-cli.sh "Create a small Python CLI app here with tests and a README."
 ```
 
 Or call the wrapper directly:
@@ -176,7 +192,7 @@ python3 -m codex.cli "Create a small Python CLI app here with tests and a README
 Run:
 
 ```bash
-./talk-to-codex-openrouter.sh
+./scripts/talk-to-codex-openrouter.sh
 ```
 
 This starts the interactive Codex CLI with `.env` loaded and OpenRouter configured.
@@ -188,7 +204,7 @@ Use this script instead of plain `codex`. Plain `codex` may default to the OpenA
 Use this helper to create a project under `projects/` and send the prompt to Codex CLI:
 
 ```bash
-./create-project-with-codex.sh todo-app "Create a Python Flask todo app with tests and a README."
+./scripts/create-project-with-codex.sh todo-app "Create a Python Flask todo app with tests and a README."
 ```
 
 This creates:
@@ -202,7 +218,7 @@ Then Codex CLI works inside that folder.
 For full local developer access, use:
 
 ```bash
-./create-project-with-codex.sh --full-access fullstack-app "Create a full-stack app, install dependencies, run tests, and fix any failures."
+./scripts/create-project-with-codex.sh --full-access fullstack-app "Create a full-stack app, install dependencies, run tests, and fix any failures."
 ```
 
 `--full-access` runs Codex CLI with:
@@ -258,7 +274,7 @@ Missing environment variable: `OPENROUTER_API_KEY`.
 Start Codex with:
 
 ```bash
-./talk-to-codex-openrouter.sh
+./scripts/talk-to-codex-openrouter.sh
 ```
 
 That script loads `.env` before starting Codex.
@@ -275,7 +291,7 @@ url: https://api.openai.com/v1/responses
 Then Codex is using the OpenAI API endpoint, not OpenRouter. Exit that session and start a new one with:
 
 ```bash
-./talk-to-codex-openrouter.sh
+./scripts/talk-to-codex-openrouter.sh
 ```
 
 The expected OpenRouter base URL is:
@@ -308,21 +324,35 @@ codex --version
 codex --version
 ```
 
-## Manager Agent Tool Shape
+## LangGraph Workflow
 
-The future LangGraph manager can import `speak_with_codex`:
+The starter graph begins with `project_router`. It routes by `task_status` and sends `task_md` to either the new-project or enhance-project node.
 
 ```python
-from codex import speak_with_codex
+from graph import run_coding_graph
 
-result = speak_with_codex(
-    "Create a file named hello.md with a short greeting.",
+
+result = run_coding_graph(
+    "# Task\nCreate a file named hello.md with a short greeting.",
     project_dir="./projects/demo",
+    task_status="new",
+    business_requirement="Build the first version of the demo project.",
     full_access=True,
 )
 
-print(result)
+print(result["response"])
 ```
+
+You can also run it from the terminal:
+
+```bash
+python3 -m graph.cli "# Task
+Create a file named hello.md with a short greeting." --project-dir ./projects/demo --task-status new --business-requirement "Build the first version of the demo project."
+```
+
+Use `--config ./path/to/config.yml` to run the graph with another YAML config file.
+
+For an enhancement, use `task_status="enhance"` or omit `--task-status`, and `business_requirement` can be empty if the project already has it saved.
 
 For lower-level control, import `run_codex_cli`:
 
@@ -351,7 +381,7 @@ OK
 To type the function prompt directly in the terminal, run:
 
 ```bash
-python3 speak-with-codex.py --project-dir "./projects/demo" --full-access
+python3 scripts/speak-with-codex.py --project-dir "./projects/demo" --full-access
 ```
 
 Then type your prompt and press `Enter`.
@@ -359,7 +389,7 @@ Then type your prompt and press `Enter`.
 For multi-line prompts, run:
 
 ```bash
-python3 speak-with-codex.py --project-dir "./projects/demo" --full-access --multi-line
+python3 scripts/speak-with-codex.py --project-dir "./projects/demo" --full-access --multi-line
 ```
 
 Then type your prompt and press `Ctrl+D` when finished.
@@ -389,7 +419,7 @@ The manager agent should be responsible for:
 
 ## Next Steps
 
-1. Add a LangGraph manager agent.
+1. Add planner and reviewer nodes to the LangGraph workflow.
 2. Add a reviewer tool, probably Claude or Gemini through OpenRouter.
 3. Add test-running and Git commit tools.
 4. Add a task queue.

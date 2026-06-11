@@ -10,6 +10,7 @@ dependencies = [
   "langchain-core>=0.3.65",
   "langgraph>=0.4.8",
   "pydantic>=2.11.5",
+  "PyYAML>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -20,6 +21,7 @@ dev = [
 [project.scripts]
 codex-openrouter = "codex.cli:main"
 speak-with-codex = "codex.terminal:main"
+coding-graph = "graph.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

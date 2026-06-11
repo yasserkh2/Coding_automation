@@ -1,8 +1,10 @@
-"""Codex CLI automation package."""
+"""Isolated Codex CLI adapter package."""
 
 from .binary import CodexBinaryResolver
 from .config import CodexConfig
 from .environment import DotenvLoader
+from .ports import CodexSpeaker
+from .project_config import load_project_config
 from .runner import CodexCliRunner
 from .service import CodexService, run_codex_cli, speak_with_codex
 
@@ -11,7 +13,9 @@ __all__ = [
     "CodexCliRunner",
     "CodexConfig",
     "CodexService",
+    "CodexSpeaker",
     "DotenvLoader",
+    "load_project_config",
     "run_codex_cli",
     "speak_with_codex",
 ]

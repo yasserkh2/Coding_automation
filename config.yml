@@ -1,0 +1,29 @@
+# Project-level defaults for coding automation.
+#
+# Keep secrets in .env. This file is intended to be committed and shared.
+
+project:
+  root: .
+  projects_dir: projects
+
+graph:
+  entrypoint: project_router
+  routes:
+    new: new_project
+    enhance: enhance_project
+  required_inputs:
+    new:
+      - task_status
+      - business_requirement
+      - task_md
+    enhance:
+      - task_status
+      - task_md
+
+codex:
+  model_provider: openrouter
+  model: openai/gpt-5-codex
+  provider_name: OpenRouter
+  base_url: https://openrouter.ai/api/v1
+  env_key: OPENROUTER_API_KEY
+  timeout_seconds: 1800

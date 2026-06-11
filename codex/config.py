@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .paths import ROOT
+from .project_config import load_project_config, resolve_config_path
 
 
 @dataclass(frozen=True)
@@ -21,3 +22,25 @@ class CodexConfig:
     base_url: str = "https://openrouter.ai/api/v1"
     env_key: str = "OPENROUTER_API_KEY"
     timeout_seconds: int = 1800
+
+    @classmethod
+    def from_project_config(cls, path: Path | None = None) -> "CodexConfig":
+        """Build Codex settings from ``config.yml``."""
+
+        project_config = load_project_config(path)
+        project = project_config["project"]
+        codex = project_config["codex"]
+        config_root = path.parent if path else ROOT
+        root = resolve_config_path(str(project["root"]), config_root)
+
+        return cls(
+            root=root,
+            env_file=root / ".env",
+            codex_home=root / ".codex-home",
+            model_provider=str(codex["model_provider"]),
+            model=str(codex["model"]),
+            provider_name=str(codex["provider_name"]),
+            base_url=str(codex["base_url"]),
+            env_key=str(codex["env_key"]),
+            timeout_seconds=int(codex["timeout_seconds"]),
+        )
