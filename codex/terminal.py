@@ -16,6 +16,8 @@ class TerminalPromptApp:
         self.multi_line = multi_line
 
     def run(self) -> None:
+        """Read a prompt from the terminal and print the Codex response."""
+
         prompt = self._read_prompt()
         if not prompt:
             print("No prompt entered.")
@@ -51,6 +53,8 @@ class TerminalPromptApp:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Create the parser for the interactive terminal prompt app."""
+
     parser = argparse.ArgumentParser(description="Send a terminal prompt to Codex CLI.")
     parser.add_argument("--project-dir", default=".", help="Folder Codex should work in.")
     parser.add_argument("--full-access", action="store_true", help="Use danger-full-access mode.")
@@ -59,6 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Parse command-line arguments and run the terminal prompt app."""
+
     args = build_parser().parse_args()
     TerminalPromptApp(args.project_dir, args.full_access, args.multi_line).run()
 

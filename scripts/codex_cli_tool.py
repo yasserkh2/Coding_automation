@@ -13,6 +13,8 @@ from codex.service import run_codex_cli, speak_with_codex
 
 
 def resolve_codex_binary() -> str:
+    """Return the Codex executable path selected by the package resolver."""
+
     return CodexBinaryResolver().resolve()
 
 

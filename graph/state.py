@@ -16,6 +16,8 @@ from typing import Literal, TypeAlias, TypedDict
 
 TaskStatus = Literal["new", "enhance"]
 TaskType: TypeAlias = str
+AgentRoute = Literal["ai_orchestrator", "human_in_the_loop"]
+SkillRoute = Literal["backend", "frontend", "system_designer"]
 
 
 class CodingState(TypedDict, total=False):
@@ -33,4 +35,9 @@ class CodingState(TypedDict, total=False):
     project_setup: list[str]
     full_access: bool
     task_type: TaskType
+    agent_status: str
+    agent_route: AgentRoute
+    requested_skill: SkillRoute
+    skill_route: SkillRoute
+    needs_human_review: bool
     response: str

@@ -31,6 +31,8 @@ class CodexCliRunner:
         sandbox: str = "workspace-write",
         full_env: bool = False,
     ) -> str:
+        """Execute Codex CLI for a prompt and return captured stdout."""
+
         self.dotenv_loader.load()
         self._require_api_key()
         self.config.codex_home.mkdir(exist_ok=True)

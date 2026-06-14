@@ -20,6 +20,8 @@ class CodexService:
         sandbox: str = "workspace-write",
         full_env: bool = False,
     ) -> str:
+        """Run Codex CLI through the configured runner."""
+
         return self.runner.run(prompt, project_dir, sandbox, full_env)
 
     def speak(
@@ -28,6 +30,8 @@ class CodexService:
         project_dir: str | Path | None = None,
         full_access: bool = False,
     ) -> str:
+        """Send a prompt to Codex with the selected access level."""
+
         sandbox = "danger-full-access" if full_access else "workspace-write"
         return self.run_codex_cli(prompt, project_dir, sandbox, full_access)
 
@@ -38,6 +42,8 @@ def run_codex_cli(
     sandbox: str = "workspace-write",
     full_env: bool = False,
 ) -> str:
+    """Run Codex CLI once using the default service."""
+
     return CodexService().run_codex_cli(prompt, project_dir, sandbox, full_env)
 
 
@@ -46,4 +52,6 @@ def speak_with_codex(
     project_dir: str | Path | None = None,
     full_access: bool = False,
 ) -> str:
+    """Send a prompt to Codex using the default service."""
+
     return CodexService().speak(prompt, project_dir, full_access)

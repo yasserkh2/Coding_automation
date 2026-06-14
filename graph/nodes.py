@@ -264,18 +264,111 @@ class ImplementNewProjectNode:
 
 @dataclass(frozen=True)
 class EnhanceProjectNode:
-    """Run an enhancement task against an existing project."""
-
-    speaker: CodexSpeaker
+    """Prepare state for enhancing an existing project."""
 
     def __call__(self, state: CodingState) -> CodingState:
-        task_prompt = build_enhance_project_prompt(require_task_md(state))
-        response = self.speaker.speak(
-            task_prompt,
-            project_dir=state.get("project_dir"),
-            full_access=state.get("full_access", False),
+        project_dir = require_project_dir(state)
+        return {
+            "project_name": project_name_from_state(state),
+            "project_dir": str(project_dir),
+            "project_setup": append_setup_step(state, "enhance_project"),
+        }
+
+
+@dataclass(frozen=True)
+class CreateEnhanceProjectDocsNode:
+    """Create the markdown handoff files needed for an enhancement task."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        project_dir = require_project_dir(state)
+        if not project_dir.exists():
+            raise ValueError(f"Enhance project directory does not exist: {project_dir}")
+        if not project_dir.is_dir():
+            raise ValueError(f"Enhance project path is not a directory: {project_dir}")
+
+        ai_task_path = project_dir / "Ai_Task.md"
+        done_work_summary = read_done_work_summary(ai_task_path)
+        task_md = build_enhance_task_document(done_work_summary, require_task_md(state))
+
+        (project_dir / "task.md").write_text(task_md, encoding="utf-8")
+        write_text_if_missing(
+            ai_task_path,
+            "# AI Task\n\nEnhance the existing project according to task.md.\n",
         )
-        return {"response": response}
+        return {
+            "task_md": task_md.strip(),
+            "project_setup": append_setup_step(state, "create_enhance_project_docs"),
+        }
+
+
+@dataclass(frozen=True)
+class AgentStatusNode:
+    """Record current workflow status and choose the next agent route."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        agent_route = agent_route_from_state(state)
+        return {
+            "agent_status": build_agent_status(state, agent_route),
+            "agent_route": agent_route,
+            "project_setup": append_setup_step(state, "agent_status"),
+        }
+
+
+@dataclass(frozen=True)
+class AiOrchestratorNode:
+    """Choose the skill lane that should handle the prepared task."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        skill_route = skill_route_from_state(state)
+        return {
+            "project_setup": append_setup_step(state, "ai_orchestrator"),
+            "skill_route": skill_route,
+            "response": f"AI orchestrator routed task.md to {skill_route}.",
+        }
+
+
+@dataclass(frozen=True)
+class BackendSkillNode:
+    """Placeholder node for backend implementation work."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        return {
+            "project_setup": append_setup_step(state, "backend"),
+            "response": "Backend skill is ready to handle task.md.",
+        }
+
+
+@dataclass(frozen=True)
+class FrontendSkillNode:
+    """Placeholder node for frontend implementation work."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        return {
+            "project_setup": append_setup_step(state, "frontend"),
+            "response": "Frontend skill is ready to handle task.md.",
+        }
+
+
+@dataclass(frozen=True)
+class SystemDesignerSkillNode:
+    """Placeholder node for architecture and system design work."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        return {
+            "project_setup": append_setup_step(state, "system_designer"),
+            "response": "System designer skill is ready to handle task.md.",
+        }
+
+
+@dataclass(frozen=True)
+class HumanInTheLoopNode:
+    """Placeholder node for pausing enhancement work for human review."""
+
+    def __call__(self, state: CodingState) -> CodingState:
+        return {
+            "project_setup": append_setup_step(state, "human_in_the_loop"),
+            "response": "Human review is required before AI orchestration.",
+        }
 
 
 def build_new_project_prompt(
@@ -346,6 +439,87 @@ def write_text_if_missing(path: Path, text: str) -> None:
 
     if not path.exists():
         path.write_text(text, encoding="utf-8")
+
+
+def require_project_dir(state: CodingState) -> Path:
+    """Return a normalized project directory or raise a validation error."""
+
+    project_dir = state.get("project_dir")
+    if not project_dir or not str(project_dir).strip():
+        raise ValueError("CodingState.project_dir is required for enhance tasks.")
+    return Path(project_dir)
+
+
+def read_done_work_summary(ai_task_path: Path) -> str:
+    """Return previous AI handoff content to summarize completed work."""
+
+    if not ai_task_path.exists():
+        return "No previous work summary was found."
+    existing = ai_task_path.read_text(encoding="utf-8").strip()
+    return existing or "No previous work summary was found."
+
+
+def build_enhance_task_document(done_work_summary: str, task_description: str) -> str:
+    """Build task.md content for an enhancement handoff."""
+
+    return (
+        "# Enhancement Task\n\n"
+        "## Summary For Done Work\n\n"
+        f"{done_work_summary.strip()}\n\n"
+        "## New Task Description\n\n"
+        f"{task_description.strip()}\n"
+    )
+
+
+def agent_route_from_state(state: CodingState) -> str:
+    """Return the next route after the agent status check."""
+
+    return "human_in_the_loop" if state.get("needs_human_review", False) else "ai_orchestrator"
+
+
+def build_agent_status(state: CodingState, agent_route: str) -> str:
+    """Build a short status report for the current graph position."""
+
+    completed_steps = "\n".join(f"- {step}" for step in state.get("project_setup", []))
+    return (
+        "# Agent Status\n\n"
+        f"Task type: {state.get('task_type', 'unknown')}\n"
+        f"Project: {state.get('project_name', 'unknown')}\n"
+        f"Project directory: {state.get('project_dir', 'unknown')}\n\n"
+        "Completed workflow steps:\n"
+        f"{completed_steps or '- None'}\n\n"
+        f"Next route: {agent_route}\n"
+    )
+
+
+def skill_route_from_state(state: CodingState) -> str:
+    """Choose a skill route from explicit input or task keywords."""
+
+    requested_skill = state.get("requested_skill")
+    if requested_skill in ("backend", "frontend", "system_designer"):
+        return requested_skill
+
+    task_md = new_task_description_from_task_md(state.get("task_md", "")).lower()
+    backend_terms = ("api", "database", "backend", "server", "endpoint", "auth", "login", "model", "migration")
+    frontend_terms = ("frontend", "ui", "css", "html", "component", "page", "screen", "button", "form")
+    design_terms = ("architecture", "design", "system", "plan", "schema", "workflow")
+
+    if any(term in task_md for term in backend_terms):
+        return "backend"
+    if any(term in task_md for term in frontend_terms):
+        return "frontend"
+    if any(term in task_md for term in design_terms):
+        return "system_designer"
+    return "system_designer"
+
+
+def new_task_description_from_task_md(task_md: str) -> str:
+    """Return only the new task section from a prepared enhancement document."""
+
+    marker = "## New Task Description"
+    if marker not in task_md:
+        return task_md
+    return task_md.split(marker, 1)[1]
 
 
 def build_enhance_project_prompt(task_md: str) -> str:

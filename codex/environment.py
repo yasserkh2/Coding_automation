@@ -13,6 +13,8 @@ class DotenvLoader:
         self.path = path
 
     def load(self) -> None:
+        """Load environment variables from the configured dotenv file."""
+
         if not self.path.exists():
             return
 

@@ -12,7 +12,11 @@ from codex.ports import CodexSpeaker
 from codex.service import CodexService
 
 from .nodes import (
+    AgentStatusNode,
+    AiOrchestratorNode,
+    BackendSkillNode,
     CreateEnvironmentFilesNode,
+    CreateEnhanceProjectDocsNode,
     CreateProjectDirectoryNode,
     CreateProjectDocsNode,
     EnhanceProjectNode,
@@ -20,10 +24,13 @@ from .nodes import (
     ImplementNewProjectNode,
     InitializeGitNode,
     InitializeVenvNode,
+    FrontendSkillNode,
+    HumanInTheLoopNode,
     NewProjectNode,
     ProjectRouterNode,
+    SystemDesignerSkillNode,
 )
-from .state import CodingState, TaskStatus, TaskType
+from .state import AgentRoute, CodingState, SkillRoute, TaskStatus, TaskType
 
 
 DEFAULT_PROJECT_ROUTER = "project_router"
@@ -36,12 +43,31 @@ DEFAULT_CREATE_ENVIRONMENT_FILES = "create_environment_files"
 DEFAULT_IMPLEMENT_NEW_PROJECT = "implement_new_project"
 DEFAULT_FINALIZE_NEW_PROJECT = "finalize_new_project"
 DEFAULT_ENHANCE_PROJECT = "enhance_project"
+DEFAULT_CREATE_ENHANCE_PROJECT_DOCS = "create_enhance_project_docs"
+DEFAULT_AGENT_STATUS = "agent_status"
+DEFAULT_AI_ORCHESTRATOR = "ai_orchestrator"
+DEFAULT_HUMAN_IN_THE_LOOP = "human_in_the_loop"
+DEFAULT_BACKEND = "backend"
+DEFAULT_FRONTEND = "frontend"
+DEFAULT_SYSTEM_DESIGNER = "system_designer"
 
 
 def route_project_task(state: CodingState) -> TaskType:
     """Return the route selected by ``ProjectRouterNode``."""
 
     return state.get("task_type", "enhance_project")
+
+
+def route_agent_status(state: CodingState) -> AgentRoute:
+    """Return the next node selected by ``AgentStatusNode``."""
+
+    return state.get("agent_route", DEFAULT_AI_ORCHESTRATOR)
+
+
+def route_ai_orchestrator(state: CodingState) -> SkillRoute:
+    """Return the skill node selected by ``AiOrchestratorNode``."""
+
+    return state.get("skill_route", DEFAULT_SYSTEM_DESIGNER)
 
 
 def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path | None = None):
@@ -79,7 +105,14 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_node(DEFAULT_CREATE_ENVIRONMENT_FILES, CreateEnvironmentFilesNode())
     graph.add_node(DEFAULT_IMPLEMENT_NEW_PROJECT, ImplementNewProjectNode(codex_speaker))
     graph.add_node(DEFAULT_FINALIZE_NEW_PROJECT, FinalizeNewProjectNode())
-    graph.add_node(enhance_project, EnhanceProjectNode(codex_speaker))
+    graph.add_node(enhance_project, EnhanceProjectNode())
+    graph.add_node(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS, CreateEnhanceProjectDocsNode())
+    graph.add_node(DEFAULT_AGENT_STATUS, AgentStatusNode())
+    graph.add_node(DEFAULT_AI_ORCHESTRATOR, AiOrchestratorNode())
+    graph.add_node(DEFAULT_BACKEND, BackendSkillNode())
+    graph.add_node(DEFAULT_FRONTEND, FrontendSkillNode())
+    graph.add_node(DEFAULT_SYSTEM_DESIGNER, SystemDesignerSkillNode())
+    graph.add_node(DEFAULT_HUMAN_IN_THE_LOOP, HumanInTheLoopNode())
     graph.set_entry_point(project_router)
     graph.add_conditional_edges(
         project_router,
@@ -97,7 +130,29 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_edge(DEFAULT_CREATE_ENVIRONMENT_FILES, DEFAULT_IMPLEMENT_NEW_PROJECT)
     graph.add_edge(DEFAULT_IMPLEMENT_NEW_PROJECT, DEFAULT_FINALIZE_NEW_PROJECT)
     graph.add_edge(DEFAULT_FINALIZE_NEW_PROJECT, END)
-    graph.add_edge(enhance_project, END)
+    graph.add_edge(enhance_project, DEFAULT_CREATE_ENHANCE_PROJECT_DOCS)
+    graph.add_edge(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS, DEFAULT_AGENT_STATUS)
+    graph.add_conditional_edges(
+        DEFAULT_AGENT_STATUS,
+        route_agent_status,
+        {
+            DEFAULT_AI_ORCHESTRATOR: DEFAULT_AI_ORCHESTRATOR,
+            DEFAULT_HUMAN_IN_THE_LOOP: DEFAULT_HUMAN_IN_THE_LOOP,
+        },
+    )
+    graph.add_conditional_edges(
+        DEFAULT_AI_ORCHESTRATOR,
+        route_ai_orchestrator,
+        {
+            DEFAULT_BACKEND: DEFAULT_BACKEND,
+            DEFAULT_FRONTEND: DEFAULT_FRONTEND,
+            DEFAULT_SYSTEM_DESIGNER: DEFAULT_SYSTEM_DESIGNER,
+        },
+    )
+    graph.add_edge(DEFAULT_BACKEND, END)
+    graph.add_edge(DEFAULT_FRONTEND, END)
+    graph.add_edge(DEFAULT_SYSTEM_DESIGNER, END)
+    graph.add_edge(DEFAULT_HUMAN_IN_THE_LOOP, END)
     return graph.compile()
 
 
@@ -108,6 +163,8 @@ def run_coding_graph(
     task_status: TaskStatus = "enhance",
     business_requirement: str | None = None,
     project_name: str | None = None,
+    needs_human_review: bool = False,
+    requested_skill: SkillRoute | None = None,
     speaker: CodexSpeaker | None = None,
     config_path: Path | None = None,
 ) -> CodingState:
@@ -121,6 +178,8 @@ def run_coding_graph(
             ``"enhance"`` for existing project work.
         business_requirement: Required when ``task_status`` is ``"new"``.
         project_name: Optional folder name for first-task project setup.
+        needs_human_review: Whether enhance work should pause for human input.
+        requested_skill: Optional explicit skill route for AI orchestration.
         speaker: Optional Codex speaker implementation, mostly for tests.
     """
 
@@ -138,5 +197,7 @@ def run_coding_graph(
             "project_name": project_name,
             "project_dir": str(project_dir) if project_dir is not None else None,
             "full_access": full_access,
+            "needs_human_review": needs_human_review,
+            "requested_skill": requested_skill,
         }
     )

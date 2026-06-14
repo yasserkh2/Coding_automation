@@ -16,6 +16,8 @@ from graph import create_coding_graph  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Create the parser for graph image regeneration."""
+
     parser = argparse.ArgumentParser(description="Regenerate the LangGraph workflow PNG.")
     parser.add_argument(
         "--output",
@@ -32,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Regenerate the workflow PNG at the requested output path."""
+
     args = build_parser().parse_args()
     output = args.output if args.output.is_absolute() else ROOT / args.output
 

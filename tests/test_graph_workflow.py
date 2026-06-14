@@ -102,17 +102,124 @@ class CodingGraphTests(unittest.TestCase):
 
     def test_graph_routes_existing_project_task_by_default(self) -> None:
         speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+        (project_dir / "Ai_Task.md").write_text(
+            "# AI Task\n\nImplemented the initial login screen.\n",
+            encoding="utf-8",
+        )
+
         result = run_coding_graph(
             "# Task\nAdd login",
-            project_dir="projects/demo",
+            project_dir=project_dir,
             speaker=speaker,
         )
 
         self.assertEqual(result["task_type"], "enhance_project")
-        self.assertIn("enhancement to an existing project", speaker.calls[0][0])
-        self.assertIn("task.md:", speaker.calls[0][0])
-        self.assertIn("Add login", speaker.calls[0][0])
-        self.assertEqual(speaker.calls[0][1:], ("projects/demo", False))
+        self.assertEqual(
+            result["project_setup"],
+            [
+                "enhance_project",
+                "create_enhance_project_docs",
+                "agent_status",
+                "ai_orchestrator",
+                "backend",
+            ],
+        )
+        self.assertEqual(result["agent_route"], "ai_orchestrator")
+        self.assertEqual(result["skill_route"], "backend")
+        self.assertIn("Next route: ai_orchestrator", result["agent_status"])
+        expected_task_md = (
+            "# Enhancement Task\n\n"
+            "## Summary For Done Work\n\n"
+            "# AI Task\n\n"
+            "Implemented the initial login screen.\n\n"
+            "## New Task Description\n\n"
+            "# Task\nAdd login\n"
+        )
+        self.assertEqual((project_dir / "task.md").read_text(encoding="utf-8"), expected_task_md)
+        self.assertEqual(result["task_md"], expected_task_md.strip())
+        self.assertEqual(
+            (project_dir / "Ai_Task.md").read_text(encoding="utf-8"),
+            "# AI Task\n\nImplemented the initial login screen.\n",
+        )
+        self.assertEqual(result["response"], "Backend skill is ready to handle task.md.")
+        self.assertEqual(speaker.calls, [])
+
+    def test_ai_orchestrator_can_route_to_requested_frontend_skill(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nAdd API health check",
+            project_dir=project_dir,
+            requested_skill="frontend",
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "frontend")
+        self.assertEqual(
+            result["project_setup"],
+            [
+                "enhance_project",
+                "create_enhance_project_docs",
+                "agent_status",
+                "ai_orchestrator",
+                "frontend",
+            ],
+        )
+        self.assertEqual(result["response"], "Frontend skill is ready to handle task.md.")
+        self.assertEqual(speaker.calls, [])
+
+    def test_ai_orchestrator_defaults_unclear_tasks_to_system_designer(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nThink through the next milestone",
+            project_dir=project_dir,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "system_designer")
+        self.assertEqual(result["response"], "System designer skill is ready to handle task.md.")
+        self.assertEqual(speaker.calls, [])
+
+    def test_enhance_project_can_route_to_human_in_the_loop(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nReview risky migration",
+            project_dir=project_dir,
+            needs_human_review=True,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["agent_route"], "human_in_the_loop")
+        self.assertEqual(
+            result["project_setup"],
+            [
+                "enhance_project",
+                "create_enhance_project_docs",
+                "agent_status",
+                "human_in_the_loop",
+            ],
+        )
+        self.assertIn("Next route: human_in_the_loop", result["agent_status"])
+        self.assertEqual(result["response"], "Human review is required before AI orchestration.")
+        self.assertEqual(speaker.calls, [])
 
     def test_graph_requires_task_md(self) -> None:
         graph = create_coding_graph(FakeSpeaker())
@@ -138,6 +245,13 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("create_project_dir", node_names)
         self.assertIn("implement_new_project", node_names)
         self.assertIn("finalize_new_project", node_names)
+        self.assertIn("create_enhance_project_docs", node_names)
+        self.assertIn("agent_status", node_names)
+        self.assertIn("ai_orchestrator", node_names)
+        self.assertIn("human_in_the_loop", node_names)
+        self.assertIn("backend", node_names)
+        self.assertIn("frontend", node_names)
+        self.assertIn("system_designer", node_names)
 
     def create_temp_config(self) -> str:
         temp_dir = tempfile.TemporaryDirectory()

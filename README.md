@@ -41,7 +41,7 @@ codex/
   terminal.py     Terminal prompt app.
 
 graph/
-  Starter LangGraph coding workflow.
+  LangGraph coding workflow for new-project and enhance-project paths.
 ```
 
 ## Current Status
@@ -58,12 +58,17 @@ Working:
 - `--full-access` mode is available for local developer-style access.
 - `config.yml` stores shared project, graph, and Codex defaults.
 - `graph/` contains a starter LangGraph workflow that calls the Codex adapter.
+- The enhance-project route now prepares task handoff docs, records agent status,
+  and routes to either human review or AI skill orchestration.
+- The AI orchestrator can route enhancement work to backend, frontend, or system
+  designer skill nodes.
 - `pyproject.toml` defines the package metadata and script entry points.
 - `tests/` contains unit tests for the package and graph structure.
 
 Not built yet:
 
 - Full LangGraph manager agent.
+- Real implementations behind the backend, frontend, and system designer skill nodes.
 - A2A server/client layer.
 - Task queue.
 - Git branch/commit automation.
@@ -89,7 +94,7 @@ codex/
   Codex CLI adapter package.
 
 graph/
-  Starter LangGraph workflow package.
+  LangGraph workflow package.
 
 graph.png
   Rendered image of the current LangGraph workflow.
@@ -116,7 +121,7 @@ pyproject.toml
   Python project metadata, optional dev dependency, and console script definitions.
 
 projects/
-  Generated apps/projects live here.
+  Generated apps/projects live here. Ignored by Git.
 
 .codex-home/
   Local Codex state and project Codex config. Ignored by Git.
@@ -339,7 +344,7 @@ codex --version
 ## LangGraph Workflow
 
 The starter graph begins with `project_router`. It routes by `task_status`.
-Enhancement tasks go directly to `enhance_project`. New-project tasks run:
+New-project tasks run:
 
 ```text
 new_project
@@ -390,6 +395,53 @@ project files unless `task.md` explicitly asks for them. If `task.md` only asks
 to initialize the environment, Codex should stop after verifying and updating
 the prepared files.
 
+Enhancement tasks run through a separate path:
+
+```text
+enhance_project
+  -> create_enhance_project_docs
+  -> agent_status
+      -> human_in_the_loop
+      -> ai_orchestrator
+          -> backend
+          -> frontend
+          -> system_designer
+```
+
+`create_enhance_project_docs` is a local Python node. It requires an existing
+project directory, reads any existing `Ai_Task.md`, and writes a structured
+`task.md` handoff:
+
+```text
+# Enhancement Task
+
+## Summary For Done Work
+
+<previous Ai_Task.md content, or a fallback if missing>
+
+## New Task Description
+
+<new task input>
+```
+
+`agent_status` records the current graph status and chooses whether to continue
+to `ai_orchestrator` or pause at `human_in_the_loop`. By default, enhancement
+work continues to the AI orchestrator. Use `needs_human_review=True` or
+`--needs-human-review` to route to human review.
+
+`ai_orchestrator` chooses a skill route. It uses `requested_skill` when
+provided, otherwise it inspects the new task description and routes by simple
+keywords:
+
+```text
+backend          API, database, server, endpoint, auth, login, model, migration
+frontend         UI, CSS, HTML, component, page, screen, button, form
+system_designer  architecture, design, system, plan, schema, workflow, or unclear tasks
+```
+
+The skill nodes are placeholders right now. They mark the selected lane in
+graph state and are ready for real Codex-backed skill behavior later.
+
 ```python
 from graph import run_coding_graph
 
@@ -423,6 +475,37 @@ Create a file named hello.md with a short greeting." --project-dir ./projects/de
 Use `--config ./path/to/config.yml` to run the graph with another YAML config file.
 
 For an enhancement, use `task_status="enhance"` or omit `--task-status`, and `business_requirement` can be empty if the project already has it saved.
+
+```python
+from graph import run_coding_graph
+
+
+result = run_coding_graph(
+    "# Task\nAdd login API endpoints.",
+    project_dir="./projects/demo",
+    task_status="enhance",
+)
+
+print(result["skill_route"])
+```
+
+You can force a skill route:
+
+```bash
+python3 -m graph.cli "# Task
+Polish the dashboard layout." \
+  --project-dir ./projects/demo \
+  --requested-skill frontend
+```
+
+You can pause for human review before AI orchestration:
+
+```bash
+python3 -m graph.cli "# Task
+Review the database migration plan." \
+  --project-dir ./projects/demo \
+  --needs-human-review
+```
 
 For lower-level control, import `run_codex_cli`:
 
@@ -475,7 +558,7 @@ Run:
 Expected result:
 
 ```text
-11 passed
+14 passed, 1 subtests passed
 ```
 
 The manager agent should be responsible for:

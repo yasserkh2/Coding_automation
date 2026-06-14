@@ -15,6 +15,8 @@ class CodexBinaryResolver:
         self.home = home or Path.home()
 
     def resolve(self) -> str:
+        """Return the best available Codex executable path."""
+
         configured = os.environ.get(self.env_var)
         if configured:
             return configured

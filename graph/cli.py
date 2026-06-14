@@ -29,6 +29,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--project-name",
         help="Folder name to create or verify when --task-status new.",
     )
+    parser.add_argument(
+        "--needs-human-review",
+        action="store_true",
+        help="Route enhance work to the human-in-the-loop node after status.",
+    )
+    parser.add_argument(
+        "--requested-skill",
+        choices=["backend", "frontend", "system_designer"],
+        help="Force the AI orchestrator to route to a specific skill node.",
+    )
     parser.add_argument("--config", type=Path, help="Path to an alternate config.yml file.")
     return parser
 
@@ -44,6 +54,8 @@ def main() -> None:
         args.task_status,
         args.business_requirement,
         args.project_name,
+        args.needs_human_review,
+        args.requested_skill,
         config_path=args.config,
     )
     print(result.get("response", ""))
