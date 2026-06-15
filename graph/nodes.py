@@ -386,6 +386,7 @@ class BackendSkillNode:
         logger.info("backend: running")
         logger.info("backend: ready to handle Current_Task.md")
         return {
+            **skill_completion_state(state),
             "project_setup": append_setup_step(state, "backend"),
             "response": render_prompt("responses.backend_ready"),
         }
@@ -399,6 +400,7 @@ class FrontendSkillNode:
         logger.info("frontend: running")
         logger.info("frontend: ready to handle Current_Task.md")
         return {
+            **skill_completion_state(state),
             "project_setup": append_setup_step(state, "frontend"),
             "response": render_prompt("responses.frontend_ready"),
         }
@@ -412,6 +414,7 @@ class SystemDesignerSkillNode:
         logger.info("system_designer: running")
         logger.info("system_designer: ready to handle Current_Task.md")
         return {
+            **skill_completion_state(state),
             "project_setup": append_setup_step(state, "system_designer"),
             "response": render_prompt("responses.system_designer_ready"),
         }
@@ -567,6 +570,26 @@ def skill_route_from_state(state: CodingState) -> str:
     if any(term in task_md for term in design_terms):
         return "system_designer"
     return "system_designer"
+
+
+def skill_completion_route_from_state(state: CodingState) -> str:
+    """Return whether a skill node should end or return to agent status."""
+
+    if state.get("react_to_agent_status", False) and not state.get("skill_rechecked_agent_status", False):
+        return "agent_status"
+    return "end"
+
+
+def skill_completion_state(state: CodingState) -> CodingState:
+    """Build state returned by skill nodes for post-skill routing."""
+
+    completion_route = skill_completion_route_from_state(state)
+    logger.info("skill_completion: selected route %s", completion_route)
+    return {
+        "skill_completion_route": completion_route,
+        "skill_rechecked_agent_status": state.get("skill_rechecked_agent_status", False)
+        or completion_route == "agent_status",
+    }
 
 
 def new_task_description_from_task_md(task_md: str) -> str:

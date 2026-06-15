@@ -26,8 +26,15 @@ from .nodes import (
     build_new_project_prompt,
     task_type_for_status,
 )
-from .state import AgentRoute, CodingState, SkillRoute, TaskStatus, TaskType
-from .workflow import create_coding_graph, route_agent_status, route_ai_orchestrator, route_project_task, run_coding_graph
+from .state import AgentRoute, CodingState, SkillCompletionRoute, SkillRoute, TaskStatus, TaskType
+from .workflow import (
+    create_coding_graph,
+    route_agent_status,
+    route_ai_orchestrator,
+    route_project_task,
+    route_skill_completion,
+    run_coding_graph,
+)
 
 __all__ = [
     "AgentRoute",
@@ -49,6 +56,7 @@ __all__ = [
     "NewProjectNode",
     "ProjectRouterNode",
     "SkillRoute",
+    "SkillCompletionRoute",
     "SystemDesignerSkillNode",
     "TaskStatus",
     "TaskType",
@@ -58,6 +66,7 @@ __all__ = [
     "route_agent_status",
     "route_ai_orchestrator",
     "route_project_task",
+    "route_skill_completion",
     "run_coding_graph",
     "task_type_for_status",
 ]

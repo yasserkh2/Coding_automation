@@ -18,6 +18,7 @@ TaskStatus = Literal["new", "enhance"]
 TaskType: TypeAlias = str
 AgentRoute = Literal["ai_orchestrator", "human_in_the_loop"]
 SkillRoute = Literal["backend", "frontend", "system_designer"]
+SkillCompletionRoute = Literal["agent_status", "end"]
 
 
 class CodingState(TypedDict, total=False):
@@ -39,5 +40,8 @@ class CodingState(TypedDict, total=False):
     agent_route: AgentRoute
     requested_skill: SkillRoute
     skill_route: SkillRoute
+    react_to_agent_status: bool
+    skill_completion_route: SkillCompletionRoute
+    skill_rechecked_agent_status: bool
     needs_human_review: bool
     response: str

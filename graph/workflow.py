@@ -30,7 +30,7 @@ from .nodes import (
     ProjectRouterNode,
     SystemDesignerSkillNode,
 )
-from .state import AgentRoute, CodingState, SkillRoute, TaskStatus, TaskType
+from .state import AgentRoute, CodingState, SkillCompletionRoute, SkillRoute, TaskStatus, TaskType
 
 
 DEFAULT_PROJECT_ROUTER = "project_router"
@@ -68,6 +68,12 @@ def route_ai_orchestrator(state: CodingState) -> SkillRoute:
     """Return the skill node selected by ``AiOrchestratorNode``."""
 
     return state.get("skill_route", DEFAULT_SYSTEM_DESIGNER)
+
+
+def route_skill_completion(state: CodingState) -> SkillCompletionRoute:
+    """Return whether a skill node should end or recheck agent status."""
+
+    return state.get("skill_completion_route", "end")
 
 
 def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path | None = None):
@@ -149,9 +155,13 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
             DEFAULT_SYSTEM_DESIGNER: DEFAULT_SYSTEM_DESIGNER,
         },
     )
-    graph.add_edge(DEFAULT_BACKEND, END)
-    graph.add_edge(DEFAULT_FRONTEND, END)
-    graph.add_edge(DEFAULT_SYSTEM_DESIGNER, END)
+    skill_completion_edges = {
+        DEFAULT_AGENT_STATUS: DEFAULT_AGENT_STATUS,
+        "end": END,
+    }
+    graph.add_conditional_edges(DEFAULT_BACKEND, route_skill_completion, skill_completion_edges)
+    graph.add_conditional_edges(DEFAULT_FRONTEND, route_skill_completion, skill_completion_edges)
+    graph.add_conditional_edges(DEFAULT_SYSTEM_DESIGNER, route_skill_completion, skill_completion_edges)
     graph.add_edge(DEFAULT_HUMAN_IN_THE_LOOP, END)
     return graph.compile()
 
@@ -165,6 +175,7 @@ def run_coding_graph(
     project_name: str | None = None,
     needs_human_review: bool = False,
     requested_skill: SkillRoute | None = None,
+    react_to_agent_status: bool = False,
     speaker: CodexSpeaker | None = None,
     config_path: Path | None = None,
 ) -> CodingState:
@@ -180,6 +191,8 @@ def run_coding_graph(
         project_name: Optional folder name for first-task project setup.
         needs_human_review: Whether enhance work should pause for human input.
         requested_skill: Optional explicit skill route for AI orchestration.
+        react_to_agent_status: Whether a skill node should loop once back to
+            ``agent_status`` before finishing.
         speaker: Optional Codex speaker implementation, mostly for tests.
     """
 
@@ -199,5 +212,6 @@ def run_coding_graph(
             "full_access": full_access,
             "needs_human_review": needs_human_review,
             "requested_skill": requested_skill,
+            "react_to_agent_status": react_to_agent_status,
         }
     )

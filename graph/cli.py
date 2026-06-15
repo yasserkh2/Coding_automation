@@ -40,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["backend", "frontend", "system_designer"],
         help="Force the AI orchestrator to route to a specific skill node.",
     )
+    parser.add_argument(
+        "--react-to-agent-status",
+        action="store_true",
+        help="After a skill node runs, loop once back to agent_status before ending.",
+    )
     parser.add_argument("--config", type=Path, help="Path to an alternate config.yml file.")
     return parser
 
@@ -58,6 +63,7 @@ def main() -> None:
         args.project_name,
         args.needs_human_review,
         args.requested_skill,
+        args.react_to_agent_status,
         config_path=args.config,
     )
     print(result.get("response", ""))

@@ -191,6 +191,39 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["response"], "Frontend skill is ready to handle Current_Task.md.")
         self.assertEqual(len(speaker.calls), 1)
 
+    def test_skill_node_can_loop_once_back_to_agent_status(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nAdd backend endpoint",
+            project_dir=project_dir,
+            requested_skill="backend",
+            react_to_agent_status=True,
+            speaker=speaker,
+        )
+
+        self.assertEqual(
+            result["project_setup"],
+            [
+                "enhance_project",
+                "create_enhance_project_docs",
+                "agent_status",
+                "ai_orchestrator",
+                "backend",
+                "agent_status",
+                "ai_orchestrator",
+                "backend",
+            ],
+        )
+        self.assertEqual(result["skill_completion_route"], "end")
+        self.assertTrue(result["skill_rechecked_agent_status"])
+        self.assertEqual(result["response"], "Backend skill is ready to handle Current_Task.md.")
+        self.assertEqual(len(speaker.calls), 1)
+
     def test_ai_orchestrator_defaults_unclear_tasks_to_system_designer(self) -> None:
         speaker = FakeSpeaker()
         temp_dir = tempfile.TemporaryDirectory()

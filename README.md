@@ -409,6 +409,7 @@ enhance_project
           -> backend
           -> frontend
           -> system_designer
+          -> END or agent_status
 ```
 
 `create_enhance_project_docs` requires an existing project directory. It seeds
@@ -443,7 +444,11 @@ system_designer  architecture, design, system, plan, schema, workflow, or unclea
 ```
 
 The skill nodes are placeholders right now. They mark the selected lane in
-graph state and are ready for real Codex-backed skill behavior later.
+graph state and are ready for real Codex-backed skill behavior later. By
+default, each skill node ends the graph after it runs. When
+`react_to_agent_status=True` or `--react-to-agent-status` is set, the selected
+skill node can route once back to `agent_status` before finishing. The one-time
+guard prevents an accidental endless loop.
 
 Graph prompt text is centralized in `graph/prompts.json`. Nodes load templates
 through `graph.prompt_catalog.render_prompt()`, so prompt wording can be tuned
@@ -517,6 +522,18 @@ Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
 The enhance path runs `create_enhance_project_docs` before routing to the skill
 node. That node asks Codex to inspect the project, read `Done_AI_Tasks.md`, and
 write the prepared implementation handoff to `Current_Task.md`.
+
+To let the selected skill node loop once back to `agent_status` before ending,
+add `--react-to-agent-status`:
+
+```bash
+.venv/bin/python -m graph.cli "# Task
+Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
+  --task-status enhance \
+  --project-dir "/home/Yasser.hamed/Downloads/andalusia-chatbot" \
+  --requested-skill backend \
+  --react-to-agent-status
+```
 
 You can force a skill route:
 
