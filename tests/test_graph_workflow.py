@@ -18,6 +18,13 @@ class FakeSpeaker:
         full_access: bool = False,
     ) -> str:
         self.calls.append((prompt, project_dir, full_access))
+        if prompt.startswith("Classify the prepared task"):
+            task = prompt.split("Prepared task:", 1)[-1].lower()
+            if any(term in task for term in ("api", "backend", "endpoint", "login")):
+                return "backend"
+            if any(term in task for term in ("frontend", "ui", "screen", "component")):
+                return "frontend"
+            return "system_designer"
         return f"handled: {prompt}"
 
 
@@ -153,12 +160,16 @@ class CodingGraphTests(unittest.TestCase):
             "# AI Task\n\nImplemented the initial login screen.\n",
         )
         self.assertEqual(result["response"], "Backend skill is ready to handle Current_Task.md.")
-        self.assertEqual(len(speaker.calls), 1)
+        self.assertEqual(len(speaker.calls), 2)
         self.assertIn("Prepare the enhancement handoff", speaker.calls[0][0])
         self.assertIn("Incoming task:\n# Task\nAdd login", speaker.calls[0][0])
         self.assertIn("Read Done_AI_Tasks.md", speaker.calls[0][0])
         self.assertIn("Write the current implementation request to Current_Task.md", speaker.calls[0][0])
         self.assertEqual(speaker.calls[0][1:], (str(project_dir), False))
+        self.assertIn("Classify the prepared task", speaker.calls[1][0])
+        self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer", speaker.calls[1][0])
+        self.assertIn("one of: backend, frontend, system_designer", speaker.calls[1][0])
+        self.assertEqual(speaker.calls[1][1:], (str(project_dir), False))
 
     def test_ai_orchestrator_can_route_to_requested_frontend_skill(self) -> None:
         speaker = FakeSpeaker()
@@ -189,6 +200,40 @@ class CodingGraphTests(unittest.TestCase):
             ],
         )
         self.assertEqual(result["response"], "Frontend skill is ready to handle Current_Task.md.")
+        self.assertEqual(len(speaker.calls), 1)
+
+    def test_ai_orchestrator_prefers_agent_named_in_task_over_classifier(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nUse the frontend agent to review the API health check screen.",
+            project_dir=project_dir,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "frontend")
+        self.assertEqual(result["response"], "Frontend skill is ready to handle Current_Task.md.")
+        self.assertEqual(len(speaker.calls), 1)
+
+    def test_ai_orchestrator_can_route_to_system_designer_named_in_task(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nRoute to system designer for the next API architecture plan.",
+            project_dir=project_dir,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "system_designer")
+        self.assertEqual(result["response"], "System designer skill is ready to handle Current_Task.md.")
         self.assertEqual(len(speaker.calls), 1)
 
     def test_skill_node_can_loop_once_back_to_agent_status(self) -> None:
@@ -239,7 +284,9 @@ class CodingGraphTests(unittest.TestCase):
 
         self.assertEqual(result["skill_route"], "system_designer")
         self.assertEqual(result["response"], "System designer skill is ready to handle Current_Task.md.")
-        self.assertEqual(len(speaker.calls), 1)
+        self.assertEqual(len(speaker.calls), 2)
+        self.assertIn("Classify the prepared task", speaker.calls[1][0])
+        self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer", speaker.calls[1][0])
 
     def test_enhance_project_can_route_to_human_in_the_loop(self) -> None:
         speaker = FakeSpeaker()

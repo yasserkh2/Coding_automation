@@ -57,11 +57,19 @@ Working:
 - `scripts/create-project-with-codex.sh` creates project folders under `projects/` and sends prompts to Codex CLI.
 - `--full-access` mode is available for local developer-style access.
 - `config.yml` stores shared project, graph, and Codex defaults.
-- `graph/` contains a starter LangGraph workflow that calls the Codex adapter.
-- The enhance-project route now prepares task handoff docs, records agent status,
+- `graph/` contains a LangGraph workflow for new-project and enhance-project work.
+- New-project setup creates `Current_Task.md`, `Done_AI_Tasks.md`, and
+  `business requirements.md` before the first Codex implementation call.
+- The enhance-project route prepares task handoff docs, records agent status,
   and routes to either human review or AI skill orchestration.
+- `create_enhance_project_docs` asks Codex to inspect the existing project,
+  read `Done_AI_Tasks.md`, and write the active handoff to `Current_Task.md`.
 - The AI orchestrator can route enhancement work to backend, frontend, or system
-  designer skill nodes.
+  designer skill nodes using an explicit skill request, an agent named in the
+  task text, or an LLM-backed classifier.
+- Skill nodes can optionally loop once back to `agent_status` before ending.
+- `graph.cli` logs every graph node as it runs and logs the full prompt sent to
+  Codex before each Codex CLI call.
 - `pyproject.toml` defines the package metadata and script entry points.
 - `tests/` contains unit tests for the package and graph structure.
 
@@ -100,7 +108,8 @@ graph/prompts.json
   Central prompt and message template catalog used by graph nodes.
 
 graph.png
-  Rendered image of the current LangGraph workflow.
+  Rendered image of the current LangGraph workflow, including optional
+  skill-to-agent-status routes.
 
 tests/
   Unit tests for binary resolution, command construction, and graph workflow.
@@ -433,15 +442,23 @@ to `ai_orchestrator` or pause at `human_in_the_loop`. By default, enhancement
 work continues to the AI orchestrator. Use `needs_human_review=True` or
 `--needs-human-review` to route to human review.
 
-`ai_orchestrator` chooses a skill route. It uses `requested_skill` when
-provided, otherwise it inspects the new task description and routes by simple
-keywords:
+`ai_orchestrator` chooses a skill route from two signals. First, it uses an
+explicit request: `requested_skill` from the API/CLI, or a named agent in the
+task text such as `frontend agent`, `backend agent`, or `system designer agent`.
+If no agent is explicitly requested, it delegates to the LLM-backed skill
+classifier:
 
 ```text
-backend          API, database, server, endpoint, auth, login, model, migration
-frontend         UI, CSS, HTML, component, page, screen, button, form
-system_designer  architecture, design, system, plan, schema, workflow, or unclear tasks
+backend
+frontend
+system_designer
 ```
+
+The classifier prompt lives in `graph/prompts.json`, and the allowed skill list
+is filled from the skill nodes currently wired in `graph/workflow.py`.
+
+If the classifier is unavailable or returns an invalid route, the workflow
+defaults to `system_designer`.
 
 The skill nodes are placeholders right now. They mark the selected lane in
 graph state and are ready for real Codex-backed skill behavior later. By
@@ -558,7 +575,8 @@ Review the database migration plan." \
 `graph.cli` logs progress to the terminal. Each graph node prints a
 `<node_name>: running` line when it starts, followed by a short detail line for
 the work it is doing. Before each Codex CLI call, the runner also logs the
-project directory, sandbox, timeout, and the full prompt being sent to Codex.
+project directory, sandbox, timeout, and the full prompt being sent to Codex,
+including handoff-prep and skill-classifier prompts.
 
 Example:
 

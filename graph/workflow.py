@@ -15,6 +15,7 @@ from .nodes import (
     AgentStatusNode,
     AiOrchestratorNode,
     BackendSkillNode,
+    CodexSkillClassifier,
     CreateEnvironmentFilesNode,
     CreateEnhanceProjectDocsNode,
     CreateProjectDirectoryNode,
@@ -114,7 +115,8 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_node(enhance_project, EnhanceProjectNode())
     graph.add_node(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS, CreateEnhanceProjectDocsNode(codex_speaker))
     graph.add_node(DEFAULT_AGENT_STATUS, AgentStatusNode())
-    graph.add_node(DEFAULT_AI_ORCHESTRATOR, AiOrchestratorNode())
+    skill_routes = (DEFAULT_BACKEND, DEFAULT_FRONTEND, DEFAULT_SYSTEM_DESIGNER)
+    graph.add_node(DEFAULT_AI_ORCHESTRATOR, AiOrchestratorNode(CodexSkillClassifier(codex_speaker, skill_routes)))
     graph.add_node(DEFAULT_BACKEND, BackendSkillNode())
     graph.add_node(DEFAULT_FRONTEND, FrontendSkillNode())
     graph.add_node(DEFAULT_SYSTEM_DESIGNER, SystemDesignerSkillNode())

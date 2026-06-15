@@ -15,6 +15,9 @@
   "agent_status": {
     "status_report": "# Agent Status\n\nTask type: {task_type}\nProject: {project_name}\nProject directory: {project_dir}\n\nCompleted workflow steps:\n{completed_steps}\n\nNext route: {agent_route}\n"
   },
+  "ai_orchestrator": {
+    "skill_classifier_prompt": "Classify the prepared task into exactly one skill route.\n\nAllowed routes:\n{allowed_routes}\n\nReturn only one label with no extra text. The label must be one of: {route_labels}.\n\nPrepared task:\n{task_md}"
+  },
   "responses": {
     "backend_ready": "Backend skill is ready to handle Current_Task.md.",
     "frontend_ready": "Frontend skill is ready to handle Current_Task.md.",

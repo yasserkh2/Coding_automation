@@ -6,6 +6,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 from venv import EnvBuilder
 
 from codex.ports import CodexSpeaker
@@ -15,6 +16,39 @@ from .state import CodingState, TaskStatus, TaskType
 
 
 logger = logging.getLogger(__name__)
+
+
+class SkillClassifier(Protocol):
+    """Classify a prepared task into one skill route."""
+
+    def classify(
+        self,
+        task_md: str,
+        project_dir: str | Path | None = None,
+        full_access: bool = False,
+    ) -> str | None:
+        """Return backend, frontend, system_designer, or None."""
+
+
+@dataclass(frozen=True)
+class CodexSkillClassifier:
+    """LLM-backed skill classifier used by the AI orchestrator route helper."""
+
+    speaker: CodexSpeaker
+    skill_routes: tuple[str, ...]
+
+    def classify(
+        self,
+        task_md: str,
+        project_dir: str | Path | None = None,
+        full_access: bool = False,
+    ) -> str | None:
+        response = self.speaker.speak(
+            build_skill_classifier_prompt(task_md, self.skill_routes),
+            project_dir=project_dir,
+            full_access=full_access,
+        )
+        return parse_skill_classifier_response(response, self.skill_routes)
 
 
 def require_task_md(state: CodingState) -> str:
@@ -367,9 +401,11 @@ class AgentStatusNode:
 class AiOrchestratorNode:
     """Choose the skill lane that should handle the prepared task."""
 
+    classifier: SkillClassifier | None = None
+
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("ai_orchestrator: running")
-        skill_route = skill_route_from_state(state)
+        skill_route = skill_route_from_state(state, self.classifier)
         logger.info("ai_orchestrator: selected skill route %s", skill_route)
         return {
             "project_setup": append_setup_step(state, "ai_orchestrator"),
@@ -551,25 +587,80 @@ def build_agent_status(state: CodingState, agent_route: str) -> str:
     )
 
 
-def skill_route_from_state(state: CodingState) -> str:
-    """Choose a skill route from explicit input or task keywords."""
+def skill_route_from_state(state: CodingState, classifier: SkillClassifier | None = None) -> str:
+    """Choose a skill route from explicit input, LLM classifier, or local inference."""
 
     requested_skill = state.get("requested_skill")
     if requested_skill in ("backend", "frontend", "system_designer"):
         return requested_skill
 
     task_md = new_task_description_from_task_md(state.get("task_md", "")).lower()
-    backend_terms = ("api", "database", "backend", "server", "endpoint", "auth", "login", "model", "migration")
-    frontend_terms = ("frontend", "ui", "css", "html", "component", "page", "screen", "button", "form")
-    design_terms = ("architecture", "design", "system", "plan", "schema", "workflow")
+    requested_agent = explicit_skill_route_from_task(task_md)
+    if requested_agent:
+        return requested_agent
 
-    if any(term in task_md for term in backend_terms):
-        return "backend"
-    if any(term in task_md for term in frontend_terms):
-        return "frontend"
-    if any(term in task_md for term in design_terms):
+    if not classifier:
+        logger.info("ai_orchestrator: no classifier available, defaulting to system_designer")
         return "system_designer"
+
+    classified_route = classifier.classify(
+        state.get("task_md", ""),
+        project_dir=state.get("project_dir"),
+        full_access=state.get("full_access", False),
+    )
+    if classified_route:
+        return classified_route
+    logger.info("ai_orchestrator: classifier returned invalid route, defaulting to system_designer")
     return "system_designer"
+
+
+def build_skill_classifier_prompt(task_md: str, skill_routes: tuple[str, ...]) -> str:
+    """Build the LLM prompt for skill-route classification."""
+
+    route_labels = ", ".join(skill_routes)
+    allowed_routes = "\n".join(f"- {route}" for route in skill_routes)
+    return render_prompt(
+        "ai_orchestrator.skill_classifier_prompt",
+        allowed_routes=allowed_routes,
+        route_labels=route_labels,
+        task_md=task_md.strip(),
+    )
+
+
+def parse_skill_classifier_response(response: str, skill_routes: tuple[str, ...]) -> str | None:
+    """Parse the skill classifier response into a supported route."""
+
+    first_line = response.strip().splitlines()[0] if response.strip() else ""
+    normalized = first_line.strip(" .:`").lower().replace("-", "_").replace(" ", "_")
+    for route in skill_routes:
+        if normalized == route:
+            return route
+    return None
+
+
+def explicit_skill_route_from_task(task_md: str) -> str | None:
+    """Return a named skill route when the task explicitly asks for an agent."""
+
+    explicit_routes = (
+        ("backend", ("backend agent", "backend skill", "use backend", "route to backend")),
+        ("frontend", ("frontend agent", "frontend skill", "use frontend", "route to frontend")),
+        (
+            "system_designer",
+            (
+                "system designer agent",
+                "system designer skill",
+                "system_designer agent",
+                "system_designer skill",
+                "use system designer",
+                "route to system designer",
+                "route to system_designer",
+            ),
+        ),
+    )
+    for route, phrases in explicit_routes:
+        if any(phrase in task_md for phrase in phrases):
+            return route
+    return None
 
 
 def skill_completion_route_from_state(state: CodingState) -> str:
