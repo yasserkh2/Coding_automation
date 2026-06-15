@@ -103,6 +103,7 @@ class ProjectRouterNode:
     )
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("project_router: running")
         logger.info("project_router: validating task inputs")
         task_status = require_task_status(state)
         self._validate_required_inputs(task_status, state)
@@ -134,6 +135,7 @@ class NewProjectNode:
     """Prepare state for first-task project initialization."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("new_project: running")
         project_dir = project_dir_from_state(state)
         logger.info("new_project: preparing project_dir=%s", project_dir)
         return {
@@ -148,6 +150,7 @@ class CreateProjectDirectoryNode:
     """Create the project directory when it does not exist."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("create_project_dir: running")
         project_dir = project_dir_from_state(state)
         logger.info("create_project_dir: ensuring project directory exists at %s", project_dir)
         project_dir.mkdir(parents=True, exist_ok=True)
@@ -162,6 +165,7 @@ class CreateProjectDocsNode:
     """Create the task and business requirement documents."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("create_project_docs: running")
         project_dir = project_dir_from_state(state)
         logger.info("create_project_docs: writing initial markdown files in %s", project_dir)
         project_dir.mkdir(parents=True, exist_ok=True)
@@ -186,6 +190,7 @@ class InitializeGitNode:
     """Initialize git in the project directory when needed."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("initialize_git: running")
         project_dir = project_dir_from_state(state)
         if not (project_dir / ".git").exists():
             logger.info("initialize_git: running git init in %s", project_dir)
@@ -206,6 +211,7 @@ class InitializeVenvNode:
     """Create a Python virtual environment for the new project."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("initialize_venv: running")
         project_dir = project_dir_from_state(state)
         venv_dir = project_dir / ".venv"
         if not venv_dir.exists():
@@ -221,6 +227,7 @@ class CreateEnvironmentFilesNode:
     """Create local environment and config defaults."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("create_environment_files: running")
         project_dir = project_dir_from_state(state)
         logger.info("create_environment_files: ensuring environment files in %s", project_dir)
         write_text_if_missing(
@@ -267,6 +274,7 @@ class ImplementNewProjectNode:
     speaker: CodexSpeaker
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("implement_new_project: running")
         logger.info("implement_new_project: sending prepared task to Codex")
         task_prompt = build_new_project_prompt(
             require_business_requirement(state),
@@ -289,6 +297,7 @@ class EnhanceProjectNode:
     """Prepare state for enhancing an existing project."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("enhance_project: running")
         project_dir = require_project_dir(state)
         logger.info("enhance_project: preparing existing project_dir=%s", project_dir)
         return {
@@ -305,6 +314,7 @@ class CreateEnhanceProjectDocsNode:
     speaker: CodexSpeaker
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("create_enhance_project_docs: running")
         project_dir = require_project_dir(state)
         logger.info("create_enhance_project_docs: preparing enhancement docs in %s", project_dir)
         if not project_dir.exists():
@@ -343,6 +353,7 @@ class AgentStatusNode:
     """Record current workflow status and choose the next agent route."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("agent_status: running")
         agent_route = agent_route_from_state(state)
         logger.info("agent_status: next route is %s", agent_route)
         return {
@@ -357,6 +368,7 @@ class AiOrchestratorNode:
     """Choose the skill lane that should handle the prepared task."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("ai_orchestrator: running")
         skill_route = skill_route_from_state(state)
         logger.info("ai_orchestrator: selected skill route %s", skill_route)
         return {
@@ -371,6 +383,7 @@ class BackendSkillNode:
     """Placeholder node for backend implementation work."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("backend: running")
         logger.info("backend: ready to handle Current_Task.md")
         return {
             "project_setup": append_setup_step(state, "backend"),
@@ -383,6 +396,7 @@ class FrontendSkillNode:
     """Placeholder node for frontend implementation work."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("frontend: running")
         logger.info("frontend: ready to handle Current_Task.md")
         return {
             "project_setup": append_setup_step(state, "frontend"),
@@ -395,6 +409,7 @@ class SystemDesignerSkillNode:
     """Placeholder node for architecture and system design work."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("system_designer: running")
         logger.info("system_designer: ready to handle Current_Task.md")
         return {
             "project_setup": append_setup_step(state, "system_designer"),
@@ -407,6 +422,7 @@ class HumanInTheLoopNode:
     """Placeholder node for pausing enhancement work for human review."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("human_in_the_loop: running")
         logger.info("human_in_the_loop: pausing for human review")
         return {
             "project_setup": append_setup_step(state, "human_in_the_loop"),
@@ -440,6 +456,7 @@ class FinalizeNewProjectNode:
     """Record the graph-level new-project setup summary in Done_AI_Tasks.md."""
 
     def __call__(self, state: CodingState) -> CodingState:
+        logger.info("finalize_new_project: running")
         project_dir = project_dir_from_state(state)
         logger.info("finalize_new_project: recording setup summary in %s", project_dir / "Done_AI_Tasks.md")
         done_ai_tasks_path = project_dir / "Done_AI_Tasks.md"

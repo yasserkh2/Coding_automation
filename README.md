@@ -472,6 +472,13 @@ python3 -m graph.cli "# Task
 Create a file named hello.md with a short greeting." --project-dir ./projects/demo --project-name demo --task-status new --business-requirement "Build the first version of the demo project."
 ```
 
+When running from the repo virtual environment, use:
+
+```bash
+.venv/bin/python -m graph.cli "# Task
+Create a file named hello.md with a short greeting." --project-dir ./projects/demo --project-name demo --task-status new --business-requirement "Build the first version of the demo project."
+```
+
 If the package is installed, you can use the console script:
 
 ```bash
@@ -496,6 +503,21 @@ result = run_coding_graph(
 print(result["skill_route"])
 ```
 
+From the terminal, the first positional argument is the new task input that
+starts the enhancement process:
+
+```bash
+.venv/bin/python -m graph.cli "# Task
+Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
+  --task-status enhance \
+  --project-dir "/home/Yasser.hamed/Downloads/andalusia-chatbot" \
+  --requested-skill backend
+```
+
+The enhance path runs `create_enhance_project_docs` before routing to the skill
+node. That node asks Codex to inspect the project, read `Done_AI_Tasks.md`, and
+write the prepared implementation handoff to `Current_Task.md`.
+
 You can force a skill route:
 
 ```bash
@@ -512,6 +534,25 @@ python3 -m graph.cli "# Task
 Review the database migration plan." \
   --project-dir ./projects/demo \
   --needs-human-review
+```
+
+### CLI logs
+
+`graph.cli` logs progress to the terminal. Each graph node prints a
+`<node_name>: running` line when it starts, followed by a short detail line for
+the work it is doing. Before each Codex CLI call, the runner also logs the
+project directory, sandbox, timeout, and the full prompt being sent to Codex.
+
+Example:
+
+```text
+INFO graph.nodes: enhance_project: running
+INFO graph.nodes: create_enhance_project_docs: running
+INFO graph.nodes: create_enhance_project_docs: asking Codex to inspect project and write Current_Task.md
+INFO codex.runner: codex_cli: starting project_dir=/home/Yasser.hamed/Downloads/andalusia-chatbot sandbox=workspace-write timeout_seconds=...
+INFO codex.runner: codex_cli: prompt sent to Codex:
+Prepare the enhancement handoff for this existing project.
+...
 ```
 
 For lower-level control, import `run_codex_cli`:

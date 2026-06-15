@@ -48,6 +48,7 @@ class CodexCliRunner:
             sandbox,
             self.config.timeout_seconds,
         )
+        logger.info("codex_cli: prompt sent to Codex:\n%s", prompt)
         result = subprocess.run(
             self._build_command(prompt, resolved_project_dir, sandbox, full_env),
             cwd=str(resolved_project_dir),
