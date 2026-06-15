@@ -26,6 +26,7 @@ DEFAULT_PROJECT_CONFIG: dict[str, Any] = {
             "new": ["task_status", "business_requirement", "task_md"],
             "enhance": ["task_status", "task_md"],
         },
+        "skill_max_turns": 3,
     },
     "codex": {
         "model_provider": "openrouter",
@@ -34,6 +35,8 @@ DEFAULT_PROJECT_CONFIG: dict[str, Any] = {
         "base_url": "https://openrouter.ai/api/v1",
         "env_key": "OPENROUTER_API_KEY",
         "timeout_seconds": 1800,
+        "reasoning_effort": "medium",
+        "nodes": {},
     },
 }
 

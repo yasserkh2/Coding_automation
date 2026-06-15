@@ -24,8 +24,11 @@ from .nodes import (
     ProjectRouterNode,
     SkillClassifier,
     SystemDesignerSkillNode,
+    build_backend_skill_prompt,
     build_enhance_project_prompt,
+    build_frontend_skill_prompt,
     build_new_project_prompt,
+    build_system_designer_skill_prompt,
     task_type_for_status,
 )
 from .state import AgentRoute, CodingState, SkillCompletionRoute, SkillRoute, TaskStatus, TaskType
@@ -64,8 +67,11 @@ __all__ = [
     "SystemDesignerSkillNode",
     "TaskStatus",
     "TaskType",
+    "build_backend_skill_prompt",
     "build_enhance_project_prompt",
+    "build_frontend_skill_prompt",
     "build_new_project_prompt",
+    "build_system_designer_skill_prompt",
     "create_coding_graph",
     "route_agent_status",
     "route_ai_orchestrator",

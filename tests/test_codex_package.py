@@ -65,6 +65,7 @@ class CodexCliRunnerTests(unittest.TestCase):
                         "  base_url: https://example.test/api",
                         "  env_key: TEST_API_KEY",
                         "  timeout_seconds: 12",
+                        "  reasoning_effort: high",
                     ]
                 ),
                 encoding="utf-8",
@@ -79,6 +80,46 @@ class CodexCliRunnerTests(unittest.TestCase):
         self.assertEqual(config.base_url, "https://example.test/api")
         self.assertEqual(config.env_key, "TEST_API_KEY")
         self.assertEqual(config.timeout_seconds, 12)
+        self.assertEqual(config.reasoning_effort, "high")
+
+    def test_codex_config_can_use_node_specific_model_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.yml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "project:",
+                        "  root: .",
+                        "codex:",
+                        "  model_provider: global-provider",
+                        "  model: global/model",
+                        "  provider_name: Global Provider",
+                        "  base_url: https://global.example/api",
+                        "  env_key: GLOBAL_API_KEY",
+                        "  timeout_seconds: 12",
+                        "  reasoning_effort: medium",
+                        "  nodes:",
+                        "    backend:",
+                        "      model: backend/model",
+                        "      timeout_seconds: 34",
+                        "      reasoning_effort: high",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            backend_config = CodexConfig.from_project_config(config_path, "backend")
+            frontend_config = CodexConfig.from_project_config(config_path, "frontend")
+
+        self.assertEqual(backend_config.model, "backend/model")
+        self.assertEqual(backend_config.timeout_seconds, 34)
+        self.assertEqual(backend_config.model_provider, "global-provider")
+        self.assertEqual(backend_config.base_url, "https://global.example/api")
+        self.assertEqual(backend_config.reasoning_effort, "high")
+        self.assertEqual(frontend_config.model, "global/model")
+        self.assertEqual(frontend_config.timeout_seconds, 12)
+        self.assertEqual(frontend_config.reasoning_effort, "medium")
 
     def test_builds_openrouter_command(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -96,6 +137,7 @@ class CodexCliRunnerTests(unittest.TestCase):
 
         self.assertEqual(command[0], "/bin/codex")
         self.assertIn("model_provider=openrouter", command)
+        self.assertIn("reasoning_effort=medium", command)
         self.assertIn("model_providers.openrouter.base_url=https://openrouter.ai/api/v1", command)
         self.assertIn("shell_environment_policy.inherit=all", command)
         self.assertEqual(command[-1], "Reply with OK only.")

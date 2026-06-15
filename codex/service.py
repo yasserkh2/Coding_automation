@@ -4,14 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .config import CodexConfig
 from .runner import CodexCliRunner
 
 
 class CodexService:
     """Application-facing service for speaking with Codex."""
 
-    def __init__(self, runner: CodexCliRunner | None = None) -> None:
-        self.runner = runner or CodexCliRunner()
+    def __init__(
+        self,
+        runner: CodexCliRunner | None = None,
+        config_path: Path | None = None,
+        node_name: str | None = None,
+    ) -> None:
+        config = CodexConfig.from_project_config(config_path, node_name) if runner is None else None
+        self.runner = runner or CodexCliRunner(config=config)
 
     def run_codex_cli(
         self,

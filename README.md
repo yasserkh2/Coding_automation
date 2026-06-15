@@ -56,7 +56,8 @@ Working:
 - `scripts/talk-to-codex-openrouter.sh` starts an interactive Codex CLI session with OpenRouter config.
 - `scripts/create-project-with-codex.sh` creates project folders under `projects/` and sends prompts to Codex CLI.
 - `--full-access` mode is available for local developer-style access.
-- `config.yml` stores shared project, graph, and Codex defaults.
+- `config.yml` stores shared project, graph, global Codex defaults, and
+  per-node Codex model overrides.
 - `graph/` contains a LangGraph workflow for new-project and enhance-project work.
 - New-project setup creates `Current_Task.md`, `Done_AI_Tasks.md`, and
   `business requirements.md` before the first Codex implementation call.
@@ -67,7 +68,8 @@ Working:
 - The AI orchestrator can route enhancement work to backend, frontend, or system
   designer skill nodes using an explicit skill request, an agent named in the
   task text, or an LLM-backed classifier.
-- Skill nodes can optionally loop once back to `agent_status` before ending.
+- Skill nodes chat with Codex, then decide whether to continue Codex turns,
+  ask for human input, loop once to `agent_status`, or end successfully.
 - `graph.cli` logs every graph node as it runs and logs the full prompt sent to
   Codex before each Codex CLI call.
 - `pyproject.toml` defines the package metadata and script entry points.
@@ -109,7 +111,7 @@ graph/prompts.json
 
 graph.png
   Rendered image of the current LangGraph workflow, including optional
-  skill-to-agent-status routes.
+  skill-to-agent-status and skill-to-human-review routes.
 
 tests/
   Unit tests for binary resolution, command construction, and graph workflow.
@@ -149,7 +151,47 @@ OPENROUTER_API_KEY="sk-or-xxxxx"
 
 The `.env` file is ignored by Git.
 
-Shared project defaults live in `config.yml`. Codex settings, graph route names, and default project paths are loaded from this file. Do not put API keys or secrets there.
+Shared project defaults live in `config.yml`. Codex settings, graph route names,
+default project paths, and `graph.skill_max_turns` are loaded from this file. Do
+not put API keys or secrets there.
+
+Codex model settings can be configured globally and then overridden per graph
+node. Each node override inherits missing values from the global `codex` block:
+
+```yaml
+codex:
+  model_provider: openrouter
+  model: openai/gpt-5.4-mini
+  provider_name: OpenRouter
+  base_url: https://openrouter.ai/api/v1
+  env_key: OPENROUTER_API_KEY
+  timeout_seconds: 1800
+  reasoning_effort: minimal
+  nodes:
+    implement_new_project:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    create_enhance_project_docs:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    ai_orchestrator:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    backend:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    frontend:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    system_designer:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+```
+
+You can override any Codex setting per node, including `model_provider`,
+`model`, `provider_name`, `base_url`, `env_key`, `timeout_seconds`, and
+`reasoning_effort`. Supported reasoning effort values are `minimal`, `low`,
+`medium`, and `high`.
 
 Create a Python virtual environment:
 
@@ -241,7 +283,7 @@ For the graph-driven new-project flow, use `task_status="new"` or
 `--task-status new`. The new-project route creates or verifies the named
 project folder, writes `Current_Task.md`, `Done_AI_Tasks.md`, and
 `business requirements.md`, initializes git, creates `.venv`, `.env`,
-`config.yml`, `requirements.txt`, `.gitignore`, and `README.md`, then sends
+`.env.example`, `config.yml`, `requirements.txt`, `.gitignore`, and `README.md`, then sends
 Codex a focused implementation prompt.
 
 For full local developer access, use:
@@ -276,7 +318,7 @@ codex exec \
   --sandbox workspace-write \
   --cd "$PROJECT_DIR" \
   -c model_provider=openrouter \
-  -c model='openai/gpt-5-codex' \
+  -c model='openai/gpt-5.4-mini' \
   -c model_providers.openrouter.name=OpenRouter \
   -c model_providers.openrouter.base_url='https://openrouter.ai/api/v1' \
   -c model_providers.openrouter.env_key=OPENROUTER_API_KEY \
@@ -396,6 +438,7 @@ business requirements.md
 .git/
 .venv/
 .env
+.env.example
 config.yml
 requirements.txt
 .gitignore
@@ -413,12 +456,11 @@ Enhancement tasks run through a separate path:
 enhance_project
   -> create_enhance_project_docs
   -> agent_status
-      -> human_in_the_loop
       -> ai_orchestrator
           -> backend
           -> frontend
           -> system_designer
-          -> END or agent_status
+          -> END or agent_status or human_in_the_loop
 ```
 
 `create_enhance_project_docs` requires an existing project directory. It seeds
@@ -437,10 +479,9 @@ Current_Task.md
 <Codex-prepared task to implement>
 ```
 
-`agent_status` records the current graph status and chooses whether to continue
-to `ai_orchestrator` or pause at `human_in_the_loop`. By default, enhancement
-work continues to the AI orchestrator. Use `needs_human_review=True` or
-`--needs-human-review` to route to human review.
+`agent_status` records the current graph status and continues to
+`ai_orchestrator`. Human review happens later only when a selected skill asks
+for it with `SKILL_STATUS: human_review`.
 
 `ai_orchestrator` chooses a skill route from two signals. First, it uses an
 explicit request: `requested_skill` from the API/CLI, or a named agent in the
@@ -460,12 +501,67 @@ is filled from the skill nodes currently wired in `graph/workflow.py`.
 If the classifier is unavailable or returns an invalid route, the workflow
 defaults to `system_designer`.
 
-The skill nodes are placeholders right now. They mark the selected lane in
-graph state and are ready for real Codex-backed skill behavior later. By
-default, each skill node ends the graph after it runs. When
+The skill nodes run bounded Codex conversations. Each skill node builds a
+lane-specific `skill_prompt` from `graph/prompts.json`, sends it to Codex, and
+stores the latest response plus a transcript in graph state. The prompt scopes
+the work to the selected lane:
+
+```text
+backend          APIs, endpoints, auth, persistence, services, backend config
+frontend         screens, components, forms, layout, styling, client behavior
+system_designer  architecture, module boundaries, data flow, contracts, risks
+```
+
+By default, each skill node ends the graph after successful work. When
 `react_to_agent_status=True` or `--react-to-agent-status` is set, the selected
 skill node can route once back to `agent_status` before finishing. The one-time
-guard prevents an accidental endless loop.
+guard prevents an accidental endless loop. A skill can also route to
+`human_in_the_loop` by asking Codex to return `SKILL_STATUS: human_review` with
+a `QUESTION: ...` line.
+
+Skill conversations are bounded by `graph.skill_max_turns` in `config.yml`. The
+default is 3 Codex turns per selected skill. You can override it per CLI run
+with `--skill-max-turns`.
+Skill prompts ask Codex to end each response with one of three status lines:
+
+```text
+SKILL_STATUS: done          end the task successfully
+SKILL_STATUS: continue      ask Codex for another skill turn
+SKILL_STATUS: human_review  pause at human_in_the_loop with QUESTION
+```
+
+The graph stops the skill conversation at `done`, `human_review`, a missing
+`continue` status, or the maximum turn count.
+Before a skill can return `SKILL_STATUS: done`, its prompt requires a completion
+audit of the project handoff and config files. The skill must check and update
+`README.md`, `Done_AI_Tasks.md`, `Current_Task.md`, `.env` placeholders,
+`.env.example`, `config.yml`, dependency files, and `.gitignore` when the task
+affects them, or explicitly say they were checked and did not need changes.
+The graph also enforces this: if Codex returns `SKILL_STATUS: done` without
+clearly confirming the audit files, the skill sends one focused audit prompt
+before accepting completion.
+The first skill prompt includes prior skill/Codex chat history in role-style
+form when it exists. Follow-up turns are compact: they send only recent Codex
+responses and tell Codex to use `Current_Task.md` plus project files as the
+source of truth, which keeps context and cost smaller.
+
+```text
+skill:
+<previous skill prompt or follow-up>
+
+codex:
+<previous Codex response>
+```
+
+The same role-style transcript is saved under the project `Chats_History/`
+directory after each skill run so the conversation can be reviewed later. Each
+skill session gets a new timestamped file, for example
+`Chats_History/backend_20260615T123456123456Z.md`.
+
+`create_enhance_project_docs` also keeps its Codex message concise. It asks
+Codex to inspect only files relevant to the incoming task, use done-task history
+only when helpful, and write a focused `Current_Task.md` instead of a generic
+handoff.
 
 Graph prompt text is centralized in `graph/prompts.json`. Nodes load templates
 through `graph.prompt_catalog.render_prompt()`, so prompt wording can be tuned
@@ -552,6 +648,25 @@ Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
   --react-to-agent-status
 ```
 
+The default maximum skill/Codex conversation length is configured in
+`config.yml`:
+
+```yaml
+graph:
+  skill_max_turns: 3
+```
+
+To override it for one run, set `--skill-max-turns`:
+
+```bash
+.venv/bin/python -m graph.cli "# Task
+Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
+  --task-status enhance \
+  --project-dir "/home/Yasser.hamed/Downloads/andalusia-chatbot" \
+  --requested-skill backend \
+  --skill-max-turns 3
+```
+
 You can force a skill route:
 
 ```bash
@@ -559,15 +674,6 @@ python3 -m graph.cli "# Task
 Polish the dashboard layout." \
   --project-dir ./projects/demo \
   --requested-skill frontend
-```
-
-You can pause for human review before AI orchestration:
-
-```bash
-python3 -m graph.cli "# Task
-Review the database migration plan." \
-  --project-dir ./projects/demo \
-  --needs-human-review
 ```
 
 ### CLI logs
@@ -663,4 +769,4 @@ The manager agent should be responsible for:
 
 ## Notes
 
-Check the exact model slug in OpenRouter if `openai/gpt-5-codex` stops working or is not available on the account.
+Check the exact model slug in OpenRouter if `openai/gpt-5.4-mini` stops working or is not available on the account.

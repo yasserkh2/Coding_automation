@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 from venv import EnvBuilder
@@ -106,6 +107,14 @@ def append_setup_step(state: CodingState, step: str) -> list[str]:
     """Return project setup history with a new completed step."""
 
     return [*(state.get("project_setup") or []), step]
+
+
+def append_codex_chat(state: CodingState, skill_message: str, codex_response: str) -> str:
+    """Return role-style Codex chat history with a skill/codex turn appended."""
+
+    existing = (state.get("codex_chat") or "").strip()
+    turn = f"skill:\n{skill_message.strip()}\n\ncodex:\n{codex_response.strip()}"
+    return "\n\n".join(part for part in (existing, turn) if part)
 
 
 DEFAULT_ROUTES: dict[TaskStatus, TaskType] = {
@@ -269,6 +278,10 @@ class CreateEnvironmentFilesNode:
             "# Local secrets and machine-specific settings.\n",
         )
         write_text_if_missing(
+            project_dir / ".env.example",
+            "# Copy this file to .env and fill local values.\n",
+        )
+        write_text_if_missing(
             project_dir / "config.yml",
             "project:\n  name: " + project_name_from_state(state) + "\n",
         )
@@ -416,13 +429,18 @@ class AiOrchestratorNode:
 
 @dataclass(frozen=True)
 class BackendSkillNode:
-    """Placeholder node for backend implementation work."""
+    """Run the backend skill agent."""
+
+    speaker: CodexSpeaker
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("backend: running")
-        logger.info("backend: ready to handle Current_Task.md")
+        logger.info("backend: speaking with Codex")
+        skill_prompt = build_backend_skill_prompt(state.get("task_md", ""), state.get("codex_chat", ""))
+        conversation = run_skill_conversation("backend", skill_prompt, state, self.speaker)
         return {
-            **skill_completion_state(state),
+            **conversation,
+            **skill_completion_state(state, conversation),
             "project_setup": append_setup_step(state, "backend"),
             "response": render_prompt("responses.backend_ready"),
         }
@@ -430,13 +448,18 @@ class BackendSkillNode:
 
 @dataclass(frozen=True)
 class FrontendSkillNode:
-    """Placeholder node for frontend implementation work."""
+    """Run the frontend skill agent."""
+
+    speaker: CodexSpeaker
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("frontend: running")
-        logger.info("frontend: ready to handle Current_Task.md")
+        logger.info("frontend: speaking with Codex")
+        skill_prompt = build_frontend_skill_prompt(state.get("task_md", ""), state.get("codex_chat", ""))
+        conversation = run_skill_conversation("frontend", skill_prompt, state, self.speaker)
         return {
-            **skill_completion_state(state),
+            **conversation,
+            **skill_completion_state(state, conversation),
             "project_setup": append_setup_step(state, "frontend"),
             "response": render_prompt("responses.frontend_ready"),
         }
@@ -444,13 +467,18 @@ class FrontendSkillNode:
 
 @dataclass(frozen=True)
 class SystemDesignerSkillNode:
-    """Placeholder node for architecture and system design work."""
+    """Run the system designer skill agent."""
+
+    speaker: CodexSpeaker
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("system_designer: running")
-        logger.info("system_designer: ready to handle Current_Task.md")
+        logger.info("system_designer: speaking with Codex")
+        skill_prompt = build_system_designer_skill_prompt(state.get("task_md", ""), state.get("codex_chat", ""))
+        conversation = run_skill_conversation("system_designer", skill_prompt, state, self.speaker)
         return {
-            **skill_completion_state(state),
+            **conversation,
+            **skill_completion_state(state, conversation),
             "project_setup": append_setup_step(state, "system_designer"),
             "response": render_prompt("responses.system_designer_ready"),
         }
@@ -463,9 +491,15 @@ class HumanInTheLoopNode:
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("human_in_the_loop: running")
         logger.info("human_in_the_loop: pausing for human review")
+        human_question = state.get("skill_human_question", "").strip()
+        response = (
+            render_prompt("responses.human_review_question", question=human_question)
+            if human_question
+            else render_prompt("responses.human_review_required")
+        )
         return {
             "project_setup": append_setup_step(state, "human_in_the_loop"),
-            "response": render_prompt("responses.human_review_required"),
+            "response": response,
         }
 
 
@@ -567,10 +601,187 @@ def build_current_task_document(task_description: str) -> str:
     )
 
 
+def build_backend_skill_prompt(task_md: str, codex_chat: str = "") -> str:
+    """Build the backend skill agent prompt."""
+
+    return render_prompt(
+        "skills.backend_prompt",
+        task_md=task_md.strip(),
+        codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        completion_audit=render_prompt("skills.completion_audit"),
+    )
+
+
+def build_frontend_skill_prompt(task_md: str, codex_chat: str = "") -> str:
+    """Build the frontend skill agent prompt."""
+
+    return render_prompt(
+        "skills.frontend_prompt",
+        task_md=task_md.strip(),
+        codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        completion_audit=render_prompt("skills.completion_audit"),
+    )
+
+
+def build_system_designer_skill_prompt(task_md: str, codex_chat: str = "") -> str:
+    """Build the system designer skill agent prompt."""
+
+    return render_prompt(
+        "skills.system_designer_prompt",
+        task_md=task_md.strip(),
+        codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        completion_audit=render_prompt("skills.completion_audit"),
+    )
+
+
+def build_skill_followup_prompt(skill_route: str, transcript: str) -> str:
+    """Build a follow-up prompt for a multi-turn skill conversation."""
+
+    return render_prompt(
+        "skills.followup_prompt",
+        skill_route=skill_route,
+        transcript=transcript.strip(),
+        completion_audit=render_prompt("skills.completion_audit"),
+    )
+
+
+def build_skill_audit_prompt(skill_route: str) -> str:
+    """Build a focused final audit prompt before accepting skill completion."""
+
+    return render_prompt(
+        "skills.audit_prompt",
+        skill_route=skill_route,
+    )
+
+
+def run_skill_conversation(
+    skill_route: str,
+    skill_prompt: str,
+    state: CodingState,
+    speaker: CodexSpeaker,
+) -> CodingState:
+    """Run a bounded multi-turn skill conversation through Codex."""
+
+    max_turns = max(1, int(state.get("skill_max_turns", 3)))
+    project_dir = state.get("project_dir")
+    full_access = state.get("full_access", False)
+    turns: list[tuple[str, str]] = []
+    prompt = skill_prompt
+
+    for turn_index in range(max_turns):
+        logger.info("%s: Codex conversation turn %s/%s", skill_route, turn_index + 1, max_turns)
+        response = speaker.speak(prompt, project_dir=project_dir, full_access=full_access)
+        turns.append((prompt, response))
+        if skill_response_is_done(response):
+            if skill_response_has_completion_audit(response):
+                break
+            if turn_index + 1 >= max_turns:
+                logger.info("%s: done response did not confirm completion audit", skill_route)
+                break
+            prompt = build_skill_audit_prompt(skill_route)
+            continue
+        if skill_response_needs_human_review(response):
+            break
+        if not skill_response_should_continue(response):
+            break
+        prompt = build_skill_followup_prompt(skill_route, render_skill_followup_context(turns))
+
+    codex_chat = state.get("codex_chat") or ""
+    for skill_message, codex_response in turns:
+        codex_chat = append_codex_chat({"codex_chat": codex_chat}, skill_message, codex_response)
+    codex_chat_path = save_codex_chat_history(project_dir, skill_route, codex_chat)
+
+    return {
+        "codex_chat": codex_chat,
+        "codex_chat_path": str(codex_chat_path) if codex_chat_path else "",
+        "skill_prompt": skill_prompt,
+        "skill_response": turns[-1][1] if turns else "",
+        "skill_transcript": render_skill_transcript(turns),
+        "skill_turns_completed": len(turns),
+    }
+
+
+def save_codex_chat_history(project_dir: str | Path | None, skill_route: str, codex_chat: str) -> Path | None:
+    """Persist the skill/Codex chat transcript in the project for review."""
+
+    if not project_dir:
+        return None
+    history_dir = Path(project_dir) / "Chats_History"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    safe_skill_route = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in skill_route)
+    path = history_dir / f"{safe_skill_route}_{timestamp}.md"
+    path.write_text("# Codex Chat History\n\n" + codex_chat.strip() + "\n", encoding="utf-8")
+    logger.info("skill_conversation: saved Codex chat history to %s", path)
+    return path
+
+
+def render_skill_transcript(turns: list[tuple[str, str]]) -> str:
+    """Render skill conversation turns into a prompt-friendly transcript."""
+
+    sections: list[str] = []
+    for prompt, response in turns:
+        sections.append(f"skill:\n{prompt.strip()}\n\ncodex:\n{response.strip()}")
+    return "\n\n".join(sections)
+
+
+def render_skill_followup_context(turns: list[tuple[str, str]], max_turns: int = 2) -> str:
+    """Render compact prior Codex responses for low-cost follow-up prompts."""
+
+    recent_turns = turns[-max_turns:]
+    sections: list[str] = []
+    first_turn_number = len(turns) - len(recent_turns) + 1
+    for offset, (_, response) in enumerate(recent_turns):
+        sections.append(f"Turn {first_turn_number + offset} Codex response:\n{response.strip()}")
+    return "\n\n".join(sections)
+
+
+def skill_response_is_done(response: str) -> bool:
+    """Return whether a skill response says the skill work is complete."""
+
+    return "skill_status: done" in response.lower()
+
+
+def skill_response_has_completion_audit(response: str) -> bool:
+    """Return whether a done response confirms the required file audit."""
+
+    normalized = response.lower().replace("-", "_").replace(" ", "_")
+    required_markers = (
+        "readme",
+        "done_ai_tasks",
+        "current_task",
+        ".env.example",
+        ".env",
+        "config",
+    )
+    return all(marker in normalized for marker in required_markers)
+
+
+def skill_response_needs_human_review(response: str) -> bool:
+    """Return whether a skill response asks to pause for human input."""
+
+    return "skill_status: human_review" in response.lower()
+
+
+def skill_response_should_continue(response: str) -> bool:
+    """Return whether a skill response asks for another Codex turn."""
+
+    return "skill_status: continue" in response.lower()
+
+
+def extract_skill_human_question(response: str) -> str:
+    """Extract the human-review question from a skill response."""
+
+    for line in response.splitlines():
+        if line.lower().startswith("question:"):
+            return line.split(":", 1)[1].strip()
+    return "The selected skill agent needs human input before continuing."
+
+
 def agent_route_from_state(state: CodingState) -> str:
     """Return the next route after the agent status check."""
 
-    return "human_in_the_loop" if state.get("needs_human_review", False) else "ai_orchestrator"
+    return "ai_orchestrator"
 
 
 def build_agent_status(state: CodingState, agent_route: str) -> str:
@@ -663,24 +874,31 @@ def explicit_skill_route_from_task(task_md: str) -> str | None:
     return None
 
 
-def skill_completion_route_from_state(state: CodingState) -> str:
+def skill_completion_route_from_state(state: CodingState, conversation: CodingState | None = None) -> str:
     """Return whether a skill node should end or return to agent status."""
 
+    skill_response = (conversation or {}).get("skill_response", "")
+    if skill_response_needs_human_review(skill_response):
+        return "human_in_the_loop"
     if state.get("react_to_agent_status", False) and not state.get("skill_rechecked_agent_status", False):
         return "agent_status"
     return "end"
 
 
-def skill_completion_state(state: CodingState) -> CodingState:
+def skill_completion_state(state: CodingState, conversation: CodingState | None = None) -> CodingState:
     """Build state returned by skill nodes for post-skill routing."""
 
-    completion_route = skill_completion_route_from_state(state)
+    completion_route = skill_completion_route_from_state(state, conversation)
     logger.info("skill_completion: selected route %s", completion_route)
-    return {
+    completion_state: CodingState = {
         "skill_completion_route": completion_route,
         "skill_rechecked_agent_status": state.get("skill_rechecked_agent_status", False)
         or completion_route == "agent_status",
     }
+    skill_response = (conversation or {}).get("skill_response", "")
+    if completion_route == "human_in_the_loop":
+        completion_state["skill_human_question"] = extract_skill_human_question(skill_response)
+    return completion_state
 
 
 def new_task_description_from_task_md(task_md: str) -> str:

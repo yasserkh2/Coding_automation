@@ -19,11 +19,32 @@ graph:
     enhance:
       - task_status
       - task_md
+  skill_max_turns: 3
 
 codex:
   model_provider: openrouter
-  model: openai/gpt-5-codex
+  model: openai/gpt-5.4-mini
   provider_name: OpenRouter
   base_url: https://openrouter.ai/api/v1
   env_key: OPENROUTER_API_KEY
   timeout_seconds: 1800
+  reasoning_effort: minimal
+  nodes:
+    implement_new_project:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    create_enhance_project_docs:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    ai_orchestrator:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    backend:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    frontend:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    system_designer:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal

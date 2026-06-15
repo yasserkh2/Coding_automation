@@ -31,11 +31,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Folder name to create or verify when --task-status new.",
     )
     parser.add_argument(
-        "--needs-human-review",
-        action="store_true",
-        help="Route enhance work to the human-in-the-loop node after status.",
-    )
-    parser.add_argument(
         "--requested-skill",
         choices=["backend", "frontend", "system_designer"],
         help="Force the AI orchestrator to route to a specific skill node.",
@@ -44,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--react-to-agent-status",
         action="store_true",
         help="After a skill node runs, loop once back to agent_status before ending.",
+    )
+    parser.add_argument(
+        "--skill-max-turns",
+        type=int,
+        help="Maximum Codex turns for the selected skill agent. Defaults to graph.skill_max_turns in config.yml.",
     )
     parser.add_argument("--config", type=Path, help="Path to an alternate config.yml file.")
     return parser
@@ -61,9 +61,9 @@ def main() -> None:
         args.task_status,
         args.business_requirement,
         args.project_name,
-        args.needs_human_review,
         args.requested_skill,
         args.react_to_agent_status,
+        args.skill_max_turns,
         config_path=args.config,
     )
     print(result.get("response", ""))

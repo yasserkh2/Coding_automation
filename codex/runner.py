@@ -43,10 +43,11 @@ class CodexCliRunner:
 
         resolved_project_dir = Path(project_dir or self.config.root).resolve()
         logger.info(
-            "codex_cli: starting project_dir=%s sandbox=%s timeout_seconds=%s",
+            "codex_cli: starting project_dir=%s sandbox=%s timeout_seconds=%s reasoning_effort=%s",
             resolved_project_dir,
             sandbox,
             self.config.timeout_seconds,
+            self.config.reasoning_effort,
         )
         logger.info("codex_cli: prompt sent to Codex:\n%s", prompt)
         result = subprocess.run(
@@ -88,6 +89,8 @@ class CodexCliRunner:
             f"model_provider={self.config.model_provider}",
             "-c",
             f"model={self.config.model}",
+            "-c",
+            f"reasoning_effort={self.config.reasoning_effort}",
             "-c",
             f"model_providers.{self.config.model_provider}.name={self.config.provider_name}",
             "-c",

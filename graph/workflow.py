@@ -72,7 +72,7 @@ def route_ai_orchestrator(state: CodingState) -> SkillRoute:
 
 
 def route_skill_completion(state: CodingState) -> SkillCompletionRoute:
-    """Return whether a skill node should end or recheck agent status."""
+    """Return the next route after a skill node finishes its Codex chat."""
 
     return state.get("skill_completion_route", "end")
 
@@ -101,7 +101,9 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     new_project = routes["new"]
     enhance_project = routes["enhance"]
 
-    codex_speaker = speaker or CodexService()
+    def node_speaker(node_name: str) -> CodexSpeaker:
+        return speaker or CodexService(config_path=config_path, node_name=node_name)
+
     graph = StateGraph(CodingState)
     graph.add_node(project_router, ProjectRouterNode(routes, required_inputs))
     graph.add_node(new_project, NewProjectNode())
@@ -110,16 +112,22 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_node(DEFAULT_INITIALIZE_GIT, InitializeGitNode())
     graph.add_node(DEFAULT_INITIALIZE_VENV, InitializeVenvNode())
     graph.add_node(DEFAULT_CREATE_ENVIRONMENT_FILES, CreateEnvironmentFilesNode())
-    graph.add_node(DEFAULT_IMPLEMENT_NEW_PROJECT, ImplementNewProjectNode(codex_speaker))
+    graph.add_node(DEFAULT_IMPLEMENT_NEW_PROJECT, ImplementNewProjectNode(node_speaker(DEFAULT_IMPLEMENT_NEW_PROJECT)))
     graph.add_node(DEFAULT_FINALIZE_NEW_PROJECT, FinalizeNewProjectNode())
     graph.add_node(enhance_project, EnhanceProjectNode())
-    graph.add_node(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS, CreateEnhanceProjectDocsNode(codex_speaker))
+    graph.add_node(
+        DEFAULT_CREATE_ENHANCE_PROJECT_DOCS,
+        CreateEnhanceProjectDocsNode(node_speaker(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS)),
+    )
     graph.add_node(DEFAULT_AGENT_STATUS, AgentStatusNode())
     skill_routes = (DEFAULT_BACKEND, DEFAULT_FRONTEND, DEFAULT_SYSTEM_DESIGNER)
-    graph.add_node(DEFAULT_AI_ORCHESTRATOR, AiOrchestratorNode(CodexSkillClassifier(codex_speaker, skill_routes)))
-    graph.add_node(DEFAULT_BACKEND, BackendSkillNode())
-    graph.add_node(DEFAULT_FRONTEND, FrontendSkillNode())
-    graph.add_node(DEFAULT_SYSTEM_DESIGNER, SystemDesignerSkillNode())
+    graph.add_node(
+        DEFAULT_AI_ORCHESTRATOR,
+        AiOrchestratorNode(CodexSkillClassifier(node_speaker(DEFAULT_AI_ORCHESTRATOR), skill_routes)),
+    )
+    graph.add_node(DEFAULT_BACKEND, BackendSkillNode(node_speaker(DEFAULT_BACKEND)))
+    graph.add_node(DEFAULT_FRONTEND, FrontendSkillNode(node_speaker(DEFAULT_FRONTEND)))
+    graph.add_node(DEFAULT_SYSTEM_DESIGNER, SystemDesignerSkillNode(node_speaker(DEFAULT_SYSTEM_DESIGNER)))
     graph.add_node(DEFAULT_HUMAN_IN_THE_LOOP, HumanInTheLoopNode())
     graph.set_entry_point(project_router)
     graph.add_conditional_edges(
@@ -145,7 +153,6 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
         route_agent_status,
         {
             DEFAULT_AI_ORCHESTRATOR: DEFAULT_AI_ORCHESTRATOR,
-            DEFAULT_HUMAN_IN_THE_LOOP: DEFAULT_HUMAN_IN_THE_LOOP,
         },
     )
     graph.add_conditional_edges(
@@ -159,6 +166,7 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     )
     skill_completion_edges = {
         DEFAULT_AGENT_STATUS: DEFAULT_AGENT_STATUS,
+        DEFAULT_HUMAN_IN_THE_LOOP: DEFAULT_HUMAN_IN_THE_LOOP,
         "end": END,
     }
     graph.add_conditional_edges(DEFAULT_BACKEND, route_skill_completion, skill_completion_edges)
@@ -175,9 +183,9 @@ def run_coding_graph(
     task_status: TaskStatus = "enhance",
     business_requirement: str | None = None,
     project_name: str | None = None,
-    needs_human_review: bool = False,
     requested_skill: SkillRoute | None = None,
     react_to_agent_status: bool = False,
+    skill_max_turns: int | None = None,
     speaker: CodexSpeaker | None = None,
     config_path: Path | None = None,
 ) -> CodingState:
@@ -191,14 +199,17 @@ def run_coding_graph(
             ``"enhance"`` for existing project work.
         business_requirement: Required when ``task_status`` is ``"new"``.
         project_name: Optional folder name for first-task project setup.
-        needs_human_review: Whether enhance work should pause for human input.
         requested_skill: Optional explicit skill route for AI orchestration.
         react_to_agent_status: Whether a skill node should loop once back to
             ``agent_status`` before finishing.
+        skill_max_turns: Maximum Codex turns for a selected skill agent. If
+            omitted, ``graph.skill_max_turns`` from config is used.
         speaker: Optional Codex speaker implementation, mostly for tests.
     """
 
     project_config = load_project_config(config_path)
+    configured_skill_max_turns = int(project_config["graph"].get("skill_max_turns", 3))
+    effective_skill_max_turns = skill_max_turns if skill_max_turns is not None else configured_skill_max_turns
     if project_dir is None:
         config_root = config_path.parent if config_path else ROOT
         project_dir = resolve_config_path(str(project_config["project"]["projects_dir"]), config_root)
@@ -212,8 +223,8 @@ def run_coding_graph(
             "project_name": project_name,
             "project_dir": str(project_dir) if project_dir is not None else None,
             "full_access": full_access,
-            "needs_human_review": needs_human_review,
             "requested_skill": requested_skill,
             "react_to_agent_status": react_to_agent_status,
+            "skill_max_turns": effective_skill_max_turns,
         }
     )
