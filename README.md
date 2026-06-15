@@ -96,6 +96,9 @@ codex/
 graph/
   LangGraph workflow package.
 
+graph/prompts.json
+  Central prompt and message template catalog used by graph nodes.
+
 graph.png
   Rendered image of the current LangGraph workflow.
 
@@ -227,10 +230,10 @@ Then Codex CLI works inside that folder.
 
 For the graph-driven new-project flow, use `task_status="new"` or
 `--task-status new`. The new-project route creates or verifies the named
-project folder, writes `task.md` and `business requirements.md`, initializes
-git, creates `Ai_Task.md`, `.venv`, `.env`, `config.yml`, `requirements.txt`,
-`.gitignore`, and `README.md`, then sends Codex a focused implementation
-prompt.
+project folder, writes `Current_Task.md`, `Done_AI_Tasks.md`, and
+`business requirements.md`, initializes git, creates `.venv`, `.env`,
+`config.yml`, `requirements.txt`, `.gitignore`, and `README.md`, then sends
+Codex a focused implementation prompt.
 
 For full local developer access, use:
 
@@ -358,9 +361,9 @@ new_project
 ```
 
 `implement_new_project` is the only Codex call in this branch. It asks Codex
-to update `Ai_Task.md` with a concise summary before finishing. The
+to update `Done_AI_Tasks.md` with a concise summary before finishing. The
 `finalize_new_project` node is local; it records the graph setup summary in
-`Ai_Task.md` without starting another Codex session.
+`Done_AI_Tasks.md` without starting another Codex session.
 
 All nodes before `implement_new_project` are local Python setup nodes. They do
 not talk to Codex. The new-project branch sends exactly one filled prompt to
@@ -371,15 +374,15 @@ project_name
 project_dir
 completed setup steps
 business_requirement
-task.md
-instructions to update Ai_Task.md before finishing
+Current_Task.md
+instructions to update Done_AI_Tasks.md before finishing
 ```
 
 The local setup nodes create this baseline environment:
 
 ```text
-task.md
-Ai_Task.md
+Current_Task.md
+Done_AI_Tasks.md
 business requirements.md
 .git/
 .venv/
@@ -391,9 +394,9 @@ README.md
 ```
 
 Codex is instructed not to create extra directories, packages, apps, tests, or
-project files unless `task.md` explicitly asks for them. If `task.md` only asks
-to initialize the environment, Codex should stop after verifying and updating
-the prepared files.
+project files unless `Current_Task.md` explicitly asks for them. If
+`Current_Task.md` only asks to initialize the environment, Codex should stop
+after verifying and updating the prepared files.
 
 Enhancement tasks run through a separate path:
 
@@ -408,20 +411,20 @@ enhance_project
           -> system_designer
 ```
 
-`create_enhance_project_docs` is a local Python node. It requires an existing
-project directory, reads any existing `Ai_Task.md`, and writes a structured
-`task.md` handoff:
+`create_enhance_project_docs` requires an existing project directory. It seeds
+`Done_AI_Tasks.md` from existing done-task history, falling back to legacy
+`Ai_Task.md` content when needed, then asks Codex to inspect the project, read
+the done-task history, and write the active implementation handoff to
+`Current_Task.md`:
 
 ```text
-# Enhancement Task
+Done_AI_Tasks.md
+<previous done-work summary, legacy Ai_Task.md content, or a fallback if missing>
 
-## Summary For Done Work
+Current_Task.md
+# Current Task
 
-<previous Ai_Task.md content, or a fallback if missing>
-
-## New Task Description
-
-<new task input>
+<Codex-prepared task to implement>
 ```
 
 `agent_status` records the current graph status and chooses whether to continue
@@ -441,6 +444,10 @@ system_designer  architecture, design, system, plan, schema, workflow, or unclea
 
 The skill nodes are placeholders right now. They mark the selected lane in
 graph state and are ready for real Codex-backed skill behavior later.
+
+Graph prompt text is centralized in `graph/prompts.json`. Nodes load templates
+through `graph.prompt_catalog.render_prompt()`, so prompt wording can be tuned
+without rewriting workflow logic.
 
 ```python
 from graph import run_coding_graph

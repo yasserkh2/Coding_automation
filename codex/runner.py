@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -9,6 +10,9 @@ from pathlib import Path
 from .binary import CodexBinaryResolver
 from .config import CodexConfig
 from .environment import DotenvLoader
+
+
+logger = logging.getLogger(__name__)
 
 
 class CodexCliRunner:
@@ -38,6 +42,12 @@ class CodexCliRunner:
         self.config.codex_home.mkdir(exist_ok=True)
 
         resolved_project_dir = Path(project_dir or self.config.root).resolve()
+        logger.info(
+            "codex_cli: starting project_dir=%s sandbox=%s timeout_seconds=%s",
+            resolved_project_dir,
+            sandbox,
+            self.config.timeout_seconds,
+        )
         result = subprocess.run(
             self._build_command(prompt, resolved_project_dir, sandbox, full_env),
             cwd=str(resolved_project_dir),
@@ -47,6 +57,7 @@ class CodexCliRunner:
             timeout=self.config.timeout_seconds,
             check=False,
         )
+        logger.info("codex_cli: finished with returncode=%s", result.returncode)
 
         if result.returncode != 0:
             raise RuntimeError(

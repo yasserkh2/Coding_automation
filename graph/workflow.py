@@ -106,7 +106,7 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_node(DEFAULT_IMPLEMENT_NEW_PROJECT, ImplementNewProjectNode(codex_speaker))
     graph.add_node(DEFAULT_FINALIZE_NEW_PROJECT, FinalizeNewProjectNode())
     graph.add_node(enhance_project, EnhanceProjectNode())
-    graph.add_node(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS, CreateEnhanceProjectDocsNode())
+    graph.add_node(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS, CreateEnhanceProjectDocsNode(codex_speaker))
     graph.add_node(DEFAULT_AGENT_STATUS, AgentStatusNode())
     graph.add_node(DEFAULT_AI_ORCHESTRATOR, AiOrchestratorNode())
     graph.add_node(DEFAULT_BACKEND, BackendSkillNode())

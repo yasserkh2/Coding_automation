@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 from .workflow import run_coding_graph
@@ -47,6 +48,7 @@ def main() -> None:
     """Parse command-line arguments and run the graph once."""
 
     args = build_parser().parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     result = run_coding_graph(
         args.task_md,
         args.project_dir,

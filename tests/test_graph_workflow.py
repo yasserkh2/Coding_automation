@@ -51,8 +51,10 @@ class CodingGraphTests(unittest.TestCase):
             ],
         )
         self.assertTrue(project_dir.exists())
-        self.assertTrue((project_dir / "task.md").exists())
-        self.assertTrue((project_dir / "Ai_Task.md").exists())
+        self.assertTrue((project_dir / "Current_Task.md").exists())
+        self.assertTrue((project_dir / "Done_AI_Tasks.md").exists())
+        self.assertFalse((project_dir / "task.md").exists())
+        self.assertFalse((project_dir / "Ai_Task.md").exists())
         self.assertTrue((project_dir / "business requirements.md").exists())
         self.assertTrue((project_dir / ".git").exists())
         self.assertTrue((project_dir / ".venv").exists())
@@ -61,7 +63,11 @@ class CodingGraphTests(unittest.TestCase):
         self.assertTrue((project_dir / "requirements.txt").exists())
         self.assertTrue((project_dir / ".gitignore").exists())
         self.assertTrue((project_dir / "README.md").exists())
-        self.assertIn("## Graph Setup Summary", (project_dir / "Ai_Task.md").read_text(encoding="utf-8"))
+        self.assertEqual(
+            (project_dir / "Current_Task.md").read_text(encoding="utf-8"),
+            "# Current Task\n\n# Task\nCreate a file\n",
+        )
+        self.assertIn("## Graph Setup Summary", (project_dir / "Done_AI_Tasks.md").read_text(encoding="utf-8"))
         self.assertIn("finalize_new_project", result["project_setup"])
         self.assertEqual(len(speaker.calls), 1)
         self.assertEqual(result["response"], f"handled: {speaker.calls[0][0]}")
@@ -75,13 +81,13 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("- initialize_venv", speaker.calls[0][0])
         self.assertIn("- create_environment_files", speaker.calls[0][0])
         self.assertIn("Do not create extra directories", speaker.calls[0][0])
-        self.assertIn("If task.md only asks to initialize the environment", speaker.calls[0][0])
-        self.assertIn("Use Ai_Task.md as the AI handoff file", speaker.calls[0][0])
-        self.assertIn("Before finishing, update Ai_Task.md in this same Codex session", speaker.calls[0][0])
+        self.assertIn("If Current_Task.md only asks to initialize the environment", speaker.calls[0][0])
+        self.assertIn("Use Current_Task.md as the active task handoff file", speaker.calls[0][0])
+        self.assertIn("Before finishing, update Done_AI_Tasks.md in this same Codex session", speaker.calls[0][0])
         self.assertIn("Use requirements.txt for Python package dependencies", speaker.calls[0][0])
         self.assertIn("Business requirement:", speaker.calls[0][0])
         self.assertIn("Build the first version", speaker.calls[0][0])
-        self.assertIn("task.md:", speaker.calls[0][0])
+        self.assertIn("Current_Task.md:", speaker.calls[0][0])
         self.assertIn("Create a file", speaker.calls[0][0])
         self.assertEqual(speaker.calls[0][1:], (str(project_dir), True))
 
@@ -131,22 +137,28 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["agent_route"], "ai_orchestrator")
         self.assertEqual(result["skill_route"], "backend")
         self.assertIn("Next route: ai_orchestrator", result["agent_status"])
-        expected_task_md = (
-            "# Enhancement Task\n\n"
-            "## Summary For Done Work\n\n"
-            "# AI Task\n\n"
-            "Implemented the initial login screen.\n\n"
-            "## New Task Description\n\n"
-            "# Task\nAdd login\n"
+        expected_done_ai_tasks = "# AI Task\n\nImplemented the initial login screen.\n"
+        expected_current_task = "# Current Task\n\n# Task\nAdd login\n"
+        self.assertEqual(
+            (project_dir / "Done_AI_Tasks.md").read_text(encoding="utf-8"),
+            expected_done_ai_tasks,
         )
-        self.assertEqual((project_dir / "task.md").read_text(encoding="utf-8"), expected_task_md)
-        self.assertEqual(result["task_md"], expected_task_md.strip())
+        self.assertEqual(
+            (project_dir / "Current_Task.md").read_text(encoding="utf-8"),
+            expected_current_task,
+        )
+        self.assertEqual(result["task_md"], expected_current_task.strip())
         self.assertEqual(
             (project_dir / "Ai_Task.md").read_text(encoding="utf-8"),
             "# AI Task\n\nImplemented the initial login screen.\n",
         )
-        self.assertEqual(result["response"], "Backend skill is ready to handle task.md.")
-        self.assertEqual(speaker.calls, [])
+        self.assertEqual(result["response"], "Backend skill is ready to handle Current_Task.md.")
+        self.assertEqual(len(speaker.calls), 1)
+        self.assertIn("Prepare the enhancement handoff", speaker.calls[0][0])
+        self.assertIn("Incoming task:\n# Task\nAdd login", speaker.calls[0][0])
+        self.assertIn("Read Done_AI_Tasks.md", speaker.calls[0][0])
+        self.assertIn("Write the current implementation request to Current_Task.md", speaker.calls[0][0])
+        self.assertEqual(speaker.calls[0][1:], (str(project_dir), False))
 
     def test_ai_orchestrator_can_route_to_requested_frontend_skill(self) -> None:
         speaker = FakeSpeaker()
@@ -163,6 +175,9 @@ class CodingGraphTests(unittest.TestCase):
         )
 
         self.assertEqual(result["skill_route"], "frontend")
+        self.assertTrue((project_dir / "Done_AI_Tasks.md").exists())
+        self.assertTrue((project_dir / "Current_Task.md").exists())
+        self.assertFalse((project_dir / "Ai_Task.md").exists())
         self.assertEqual(
             result["project_setup"],
             [
@@ -173,8 +188,8 @@ class CodingGraphTests(unittest.TestCase):
                 "frontend",
             ],
         )
-        self.assertEqual(result["response"], "Frontend skill is ready to handle task.md.")
-        self.assertEqual(speaker.calls, [])
+        self.assertEqual(result["response"], "Frontend skill is ready to handle Current_Task.md.")
+        self.assertEqual(len(speaker.calls), 1)
 
     def test_ai_orchestrator_defaults_unclear_tasks_to_system_designer(self) -> None:
         speaker = FakeSpeaker()
@@ -190,8 +205,8 @@ class CodingGraphTests(unittest.TestCase):
         )
 
         self.assertEqual(result["skill_route"], "system_designer")
-        self.assertEqual(result["response"], "System designer skill is ready to handle task.md.")
-        self.assertEqual(speaker.calls, [])
+        self.assertEqual(result["response"], "System designer skill is ready to handle Current_Task.md.")
+        self.assertEqual(len(speaker.calls), 1)
 
     def test_enhance_project_can_route_to_human_in_the_loop(self) -> None:
         speaker = FakeSpeaker()
@@ -219,7 +234,7 @@ class CodingGraphTests(unittest.TestCase):
         )
         self.assertIn("Next route: human_in_the_loop", result["agent_status"])
         self.assertEqual(result["response"], "Human review is required before AI orchestration.")
-        self.assertEqual(speaker.calls, [])
+        self.assertEqual(len(speaker.calls), 1)
 
     def test_graph_requires_task_md(self) -> None:
         graph = create_coding_graph(FakeSpeaker())

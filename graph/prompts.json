@@ -1,0 +1,25 @@
+{
+  "new_project": {
+    "done_ai_tasks_initial": "# Done AI Tasks\n\nNo completed AI tasks yet.\n",
+    "implementation_prompt": "This is the first task for a new project. The graph has already prepared the base project environment. Inspect it, complete any stack-specific setup that is still missing, then implement the request.\n\nProject name:\n{project_name}\n{project_location}\nCompleted setup steps:\n{setup_summary}\n\nImplementation requirements:\n- Do not create extra directories, packages, apps, tests, or project files unless Current_Task.md explicitly asks for them.\n- If Current_Task.md only asks to initialize the environment, stop after verifying the prepared files.\n- Use Current_Task.md as the active task handoff file.\n- Keep Current_Task.md and business requirements.md aligned with the work.\n- Preserve .env as placeholders only; do not add real secrets.\n- Update config.yml with non-secret defaults needed by the app.\n- Use requirements.txt for Python package dependencies; leave it as a placeholder if no packages are needed.\n- Update README.md with concrete setup, run, and test commands.\n- Add focused tests when the stack supports tests.\n- Keep the setup practical and minimal.\n\nFinal AI handoff update:\n- Before finishing, update Done_AI_Tasks.md in this same Codex session with a concise summary of what was done.\n- Include the graph setup steps, any files you changed, and anything intentionally left untouched.\n\nBusiness requirement:\n{business_requirement}\n\nCurrent_Task.md:\n{task_md}",
+    "graph_setup_summary": "\n\n## Graph Setup Summary\n\nThe new-project graph completed these setup nodes:\n\n{setup_steps}\n\nThe Codex implementation step was requested to update this file in the same Codex session.\n"
+  },
+  "enhance_project": {
+    "ai_task_initial": "# AI Task\n\nEnhance the existing project according to Current_Task.md.\n",
+    "missing_done_work_summary": "No previous work summary was found.",
+    "docs_prompt": "Prepare the enhancement handoff for this existing project.\n\nIncoming task:\n{task_description}\n\nInstructions:\n- Inspect the project before writing the handoff.\n- Read Done_AI_Tasks.md to understand completed work. If it is missing or sparse, infer useful context from the repository.\n- Write the current implementation request to Current_Task.md.\n- Make Current_Task.md concrete enough for the next implementation step, including relevant context from the project and done-task history.\n- Do not implement the task yet.\n- Do not update Done_AI_Tasks.md in this step unless it is needed to fix clearly stale or malformed handoff content.\n",
+    "task_document": "# Enhancement Task\n\n## Summary For Done Work\n\n{done_work_summary}\n\n## New Task Description\n\n{task_description}\n",
+    "current_task_document": "# Current Task\n\n{task_description}\n",
+    "implementation_prompt": "This is an enhancement to an existing project. Inspect the current project before changing code and preserve existing behavior.\n\nCurrent_Task.md:\n{task_md}"
+  },
+  "agent_status": {
+    "status_report": "# Agent Status\n\nTask type: {task_type}\nProject: {project_name}\nProject directory: {project_dir}\n\nCompleted workflow steps:\n{completed_steps}\n\nNext route: {agent_route}\n"
+  },
+  "responses": {
+    "backend_ready": "Backend skill is ready to handle Current_Task.md.",
+    "frontend_ready": "Frontend skill is ready to handle Current_Task.md.",
+    "system_designer_ready": "System designer skill is ready to handle Current_Task.md.",
+    "human_review_required": "Human review is required before AI orchestration.",
+    "ai_orchestrator_routed": "AI orchestrator routed Current_Task.md to {skill_route}."
+  }
+}
