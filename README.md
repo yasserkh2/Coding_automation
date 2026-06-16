@@ -61,15 +61,15 @@
   - `graph/` contains a LangGraph workflow for new-project and enhance-project work.
   - New-project setup creates `Current_Task.md`, `Done_AI_Tasks.md`, and
     `business requirements.md` before the first Codex implementation call.
-  - The enhance-project route prepares task handoff docs, records agent status,
-    and routes to either human review or AI skill orchestration.
+  - The enhance-project route prepares task handoff docs, then routes directly
+    into AI skill orchestration.
   - `create_enhance_project_docs` asks Codex to inspect the existing project,
     read `Done_AI_Tasks.md`, and write the active handoff to `Current_Task.md`.
-  - The AI orchestrator can route enhancement work to backend, frontend, or system
-    designer skill nodes using an explicit skill request, an agent named in the
-    task text, or an LLM-backed classifier.
-  - Skill nodes chat with Codex, then decide whether to continue Codex turns,
-    ask for human input, loop once to `agent_status`, or end successfully.
+  - The AI orchestrator can route enhancement work to backend, frontend, system
+    designer, or data analysis skill nodes using an explicit skill request, an
+    agent named in the task text, or an LLM-backed classifier.
+  - Skill nodes chat with Codex, then either continue their bounded Codex turns,
+    ask for human input, or end successfully.
   - `graph.cli` logs every graph node as it runs and logs the full prompt sent to
     Codex before each Codex CLI call.
   - `pyproject.toml` defines the package metadata and script entry points.
@@ -184,6 +184,9 @@
         model: openai/gpt-5.4-mini
         reasoning_effort: minimal
       system_designer:
+        model: openai/gpt-5.4-mini
+        reasoning_effort: minimal
+      data_analysis:
         model: openai/gpt-5.4-mini
         reasoning_effort: minimal
       compact_conversation:
@@ -459,12 +462,12 @@
   ```text
   enhance_project
     -> create_enhance_project_docs
-    -> agent_status
-        -> ai_orchestrator
-            -> backend
-            -> frontend
-            -> system_designer
-            -> END or agent_status or human_in_the_loop
+    -> ai_orchestrator
+        -> backend
+        -> frontend
+        -> system_designer
+        -> data_analysis
+        -> END or human_in_the_loop
   ```
 
   `create_enhance_project_docs` requires an existing project directory. It seeds
@@ -483,20 +486,17 @@
   <Codex-prepared task to implement>
   ```
 
-  `agent_status` records the current graph status and continues to
-  `ai_orchestrator`. Human review happens later only when a selected skill asks
-  for it with `SKILL_STATUS: human_review`.
-
   `ai_orchestrator` chooses a skill route from two signals. First, it uses an
   explicit request: `requested_skill` from the API/CLI, or a named agent in the
-  task text such as `frontend agent`, `backend agent`, or `system designer agent`.
-  If no agent is explicitly requested, it delegates to the LLM-backed skill
-  classifier:
+  task text such as `frontend agent`, `backend agent`, `system designer agent`,
+  or `data analysis agent`. If no agent is explicitly requested, it delegates to
+  the LLM-backed skill classifier:
 
   ```text
   backend
   frontend
   system_designer
+  data_analysis
   ```
 
   The classifier prompt lives in `graph/prompts.json`, and the allowed skill list
@@ -514,6 +514,7 @@
   backend          APIs, endpoints, auth, persistence, services, backend config
   frontend         screens, components, forms, layout, styling, client behavior
   system_designer  architecture, module boundaries, data flow, contracts, risks
+  data_analysis    Data Understanding & Analysis in notebooks for datasets and ML models
   ```
 
   Skill conversations run as a bounded ReAct-agent loop instead of a one-shot
@@ -529,12 +530,9 @@
   context is a starting map only; Codex is still expected to inspect the project
   files directly before editing.
 
-  By default, each skill node ends the graph after successful work. When
-  `react_to_agent_status=True` or `--react-to-agent-status` is set, the selected
-  skill node can route once back to `agent_status` before finishing. The one-time
-  guard prevents an accidental endless loop. A skill can also route to
-  `human_in_the_loop` by asking Codex to return `SKILL_STATUS: human_review` with
-  a `QUESTION: ...` line.
+  After a selected skill finishes successfully, the graph ends. A skill can
+  still route to `human_in_the_loop` by asking Codex to return
+  `SKILL_STATUS: human_review` with a `QUESTION: ...` line.
 
   Skill conversations are bounded by `graph.skill_max_turns` in `config.yml`. The
   default is 3 Codex turns per selected skill: enough for observation/focus,
@@ -662,18 +660,6 @@
   node. That node asks Codex to inspect the project, read `Done_AI_Tasks.md`, and
   write the prepared implementation handoff to `Current_Task.md`.
 
-  To let the selected skill node loop once back to `agent_status` before ending,
-  add `--react-to-agent-status`:
-
-  ```bash
-  .venv/bin/python -m graph.cli --task "# Task
-  Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
-    --task-status enhance \
-    --project-dir "/home/Yasser.hamed/Downloads/andalusia-chatbot" \
-    --requested-skill backend \
-    --react-to-agent-status
-  ```
-
   The default maximum skill/Codex conversation length is configured in
   `config.yml`:
 
@@ -703,6 +689,15 @@
   Polish the dashboard layout." \
     --project-dir ./projects/demo \
     --requested-skill frontend
+  ```
+
+  For notebook-based Data Understanding & Analysis:
+
+  ```bash
+  python3 -m graph.cli --task "# Task
+  Create an exploratory data analysis notebook for the training dataset." \
+    --project-dir ./projects/demo \
+    --requested-skill data_analysis
   ```
 
   ### CLI logs

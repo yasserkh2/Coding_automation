@@ -57,7 +57,9 @@ class FakeSpeaker:
             task = prompt.split("Prepared task:", 1)[-1].lower()
             if any(term in task for term in ("api", "backend", "endpoint", "login")):
                 return "backend"
-            if any(term in task for term in ("frontend", "ui", "screen", "component")):
+            if any(term in task for term in ("data", "notebook", "dataset", "eda", "machine learning", "ml model")):
+                return "data_analysis"
+            if any(term in task for term in ("frontend", " ui ", "screen", "component")):
                 return "frontend"
             return "system_designer"
         if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
@@ -279,14 +281,11 @@ class CodingGraphTests(unittest.TestCase):
             [
                 "enhance_project",
                 "create_enhance_project_docs",
-                "agent_status",
                 "ai_orchestrator",
                 "backend",
             ],
         )
-        self.assertEqual(result["agent_route"], "ai_orchestrator")
         self.assertEqual(result["skill_route"], "backend")
-        self.assertIn("Next route: ai_orchestrator", result["agent_status"])
         expected_done_ai_tasks = "# AI Task\n\nImplemented the initial login screen.\n"
         expected_current_task = "# Current Task\n\n# Task\nAdd login\n"
         self.assertEqual(
@@ -320,8 +319,8 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("If anything is unclear", speaker.calls[0][0])
         self.assertEqual(speaker.calls[0][1:], (str(project_dir), False))
         self.assertIn("Classify the prepared task", speaker.calls[1][0])
-        self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer", speaker.calls[1][0])
-        self.assertIn("one of: backend, frontend, system_designer", speaker.calls[1][0])
+        self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer\n- data_analysis", speaker.calls[1][0])
+        self.assertIn("one of: backend, frontend, system_designer, data_analysis", speaker.calls[1][0])
         self.assertEqual(speaker.calls[1][1:], (str(project_dir), False))
         self.assertIn("You are the backend skill ReAct agent", speaker.calls[2][0])
         self.assertIn("Project software context:", speaker.calls[2][0])
@@ -359,7 +358,6 @@ class CodingGraphTests(unittest.TestCase):
             [
                 "enhance_project",
                 "create_enhance_project_docs",
-                "agent_status",
                 "ai_orchestrator",
                 "frontend",
             ],
@@ -411,7 +409,44 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
         self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
 
-    def test_skill_node_can_loop_once_back_to_agent_status(self) -> None:
+    def test_ai_orchestrator_can_route_to_requested_data_analysis_skill(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nCreate a notebook for Data Understanding & Analysis of the training dataset.",
+            project_dir=project_dir,
+            requested_skill="data_analysis",
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "data_analysis")
+        self.assertEqual(result["response"], "Data Understanding & Analysis skill is ready to handle Current_Task.md.")
+        self.assertIn("You are the Data Understanding & Analysis skill ReAct agent", result["skill_prompt"])
+        self.assertIn("Work in a notebook when analysis output is required", result["skill_prompt"])
+        self.assertIn("data_analysis", result["project_setup"])
+        self.assertEqual(result["skill_turns_completed"], 2)
+
+    def test_ai_orchestrator_classifier_can_route_to_data_analysis_skill(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nBuild an EDA notebook for the machine learning dataset.",
+            project_dir=project_dir,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "data_analysis")
+        self.assertIn("You are the Data Understanding & Analysis skill ReAct agent", result["skill_prompt"])
+
+    def test_skill_node_ends_after_successful_completion(self) -> None:
         speaker = FakeSpeaker()
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
@@ -422,7 +457,6 @@ class CodingGraphTests(unittest.TestCase):
             "# Task\nAdd backend endpoint",
             project_dir=project_dir,
             requested_skill="backend",
-            react_to_agent_status=True,
             speaker=speaker,
         )
 
@@ -431,24 +465,17 @@ class CodingGraphTests(unittest.TestCase):
             [
                 "enhance_project",
                 "create_enhance_project_docs",
-                "agent_status",
-                "ai_orchestrator",
-                "backend",
-                "agent_status",
                 "ai_orchestrator",
                 "backend",
             ],
         )
         self.assertEqual(result["skill_completion_route"], "end")
-        self.assertTrue(result["skill_rechecked_agent_status"])
         self.assertEqual(result["response"], "Backend skill is ready to handle Current_Task.md.")
         self.assertIn("You are the backend skill ReAct agent", result["skill_prompt"])
         self.assertEqual(result["skill_turns_completed"], 2)
-        self.assertEqual(len(speaker.calls), 5)
+        self.assertEqual(len(speaker.calls), 3)
         self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
         self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
-        self.assertIn("Continue as a ReAct agent", speaker.calls[4][0])
-        self.assertIn("Compact conversation: not triggered.", speaker.calls[4][0])
 
     def test_skill_node_can_continue_codex_conversation(self) -> None:
         speaker = ContinuingSkillSpeaker()
@@ -650,7 +677,6 @@ class CodingGraphTests(unittest.TestCase):
             [
                 "enhance_project",
                 "create_enhance_project_docs",
-                "agent_status",
                 "ai_orchestrator",
                 "backend",
                 "human_in_the_loop",
@@ -685,7 +711,7 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["skill_turns_completed"], 2)
         self.assertEqual(len(speaker.calls), 4)
         self.assertIn("Classify the prepared task", speaker.calls[1][0])
-        self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer", speaker.calls[1][0])
+        self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer\n- data_analysis", speaker.calls[1][0])
         self.assertIn("Continue as a ReAct agent", speaker.calls[3][0])
         self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
 
@@ -714,12 +740,13 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("implement_new_project", node_names)
         self.assertIn("finalize_new_project", node_names)
         self.assertIn("create_enhance_project_docs", node_names)
-        self.assertIn("agent_status", node_names)
+        self.assertNotIn("agent_status", node_names)
         self.assertIn("ai_orchestrator", node_names)
         self.assertIn("human_in_the_loop", node_names)
         self.assertIn("backend", node_names)
         self.assertIn("frontend", node_names)
         self.assertIn("system_designer", node_names)
+        self.assertIn("data_analysis", node_names)
 
     def create_temp_config(self) -> str:
         temp_dir = tempfile.TemporaryDirectory()

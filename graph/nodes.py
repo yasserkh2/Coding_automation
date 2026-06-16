@@ -28,7 +28,7 @@ class SkillClassifier(Protocol):
         project_dir: str | Path | None = None,
         full_access: bool = False,
     ) -> str | None:
-        """Return backend, frontend, system_designer, or None."""
+        """Return backend, frontend, system_designer, data_analysis, or None."""
 
 
 @dataclass(frozen=True)
@@ -498,21 +498,6 @@ class CreateEnhanceProjectDocsNode:
 
 
 @dataclass(frozen=True)
-class AgentStatusNode:
-    """Record current workflow status and choose the next agent route."""
-
-    def __call__(self, state: CodingState) -> CodingState:
-        logger.info("agent_status: running")
-        agent_route = agent_route_from_state(state)
-        logger.info("agent_status: next route is %s", agent_route)
-        return {
-            "agent_status": build_agent_status(state, agent_route),
-            "agent_route": agent_route,
-            "project_setup": append_setup_step(state, "agent_status"),
-        }
-
-
-@dataclass(frozen=True)
 class AiOrchestratorNode:
     """Choose the skill lane that should handle the prepared task."""
 
@@ -592,6 +577,28 @@ class SystemDesignerSkillNode:
             **skill_completion_state(state, conversation),
             "project_setup": append_setup_step(state, "system_designer"),
             "response": render_prompt("responses.system_designer_ready"),
+        }
+
+
+@dataclass(frozen=True)
+class DataAnalysisSkillNode:
+    """Run the data understanding and analysis skill agent."""
+
+    speaker: CodexSpeaker
+    summarizer: CodexSpeaker
+
+    def __call__(self, state: CodingState) -> CodingState:
+        logger.info("data_analysis: running")
+        logger.info("data_analysis: speaking with Codex")
+        codex_chat = build_prior_codex_chat_context("data_analysis", state, self.summarizer)
+        project_context = build_project_software_context(state.get("project_dir"))
+        skill_prompt = build_data_analysis_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
+        conversation = run_skill_conversation("data_analysis", skill_prompt, state, self.speaker, self.summarizer)
+        return {
+            **conversation,
+            **skill_completion_state(state, conversation),
+            "project_setup": append_setup_step(state, "data_analysis"),
+            "response": render_prompt("responses.data_analysis_ready"),
         }
 
 
@@ -741,6 +748,18 @@ def build_system_designer_skill_prompt(task_md: str, codex_chat: str = "", proje
 
     return render_prompt(
         "skills.system_designer_prompt",
+        task_md=task_md.strip(),
+        codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        project_context=project_context.strip() or "No project software context available.",
+        completion_audit=render_prompt("skills.completion_audit"),
+    )
+
+
+def build_data_analysis_skill_prompt(task_md: str, codex_chat: str = "", project_context: str = "") -> str:
+    """Build the data understanding and analysis skill agent prompt."""
+
+    return render_prompt(
+        "skills.data_analysis_prompt",
         task_md=task_md.strip(),
         codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
         project_context=project_context.strip() or "No project software context available.",
@@ -1005,31 +1024,11 @@ def extract_skill_human_question(response: str) -> str:
     return "The selected skill agent needs human input before continuing."
 
 
-def agent_route_from_state(state: CodingState) -> str:
-    """Return the next route after the agent status check."""
-
-    return "ai_orchestrator"
-
-
-def build_agent_status(state: CodingState, agent_route: str) -> str:
-    """Build a short status report for the current graph position."""
-
-    completed_steps = "\n".join(f"- {step}" for step in state.get("project_setup", []))
-    return render_prompt(
-        "agent_status.status_report",
-        task_type=state.get("task_type", "unknown"),
-        project_name=state.get("project_name", "unknown"),
-        project_dir=state.get("project_dir", "unknown"),
-        completed_steps=completed_steps or "- None",
-        agent_route=agent_route,
-    )
-
-
 def skill_route_from_state(state: CodingState, classifier: SkillClassifier | None = None) -> str:
     """Choose a skill route from explicit input, LLM classifier, or local inference."""
 
     requested_skill = state.get("requested_skill")
-    if requested_skill in ("backend", "frontend", "system_designer"):
+    if requested_skill in ("backend", "frontend", "system_designer", "data_analysis"):
         return requested_skill
 
     task_md = new_task_description_from_task_md(state.get("task_md", "")).lower()
@@ -1083,6 +1082,20 @@ def explicit_skill_route_from_task(task_md: str) -> str | None:
         ("backend", ("backend agent", "backend skill", "use backend", "route to backend")),
         ("frontend", ("frontend agent", "frontend skill", "use frontend", "route to frontend")),
         (
+            "data_analysis",
+            (
+                "data analysis agent",
+                "data analysis skill",
+                "data_analysis agent",
+                "data_analysis skill",
+                "data understanding agent",
+                "data understanding skill",
+                "use data analysis",
+                "route to data analysis",
+                "route to data_analysis",
+            ),
+        ),
+        (
             "system_designer",
             (
                 "system designer agent",
@@ -1102,13 +1115,11 @@ def explicit_skill_route_from_task(task_md: str) -> str | None:
 
 
 def skill_completion_route_from_state(state: CodingState, conversation: CodingState | None = None) -> str:
-    """Return whether a skill node should end or return to agent status."""
+    """Return whether a skill node should end or pause for human input."""
 
     skill_response = (conversation or {}).get("skill_response", "")
     if skill_response_needs_human_review(skill_response):
         return "human_in_the_loop"
-    if state.get("react_to_agent_status", False) and not state.get("skill_rechecked_agent_status", False):
-        return "agent_status"
     return "end"
 
 
@@ -1119,8 +1130,6 @@ def skill_completion_state(state: CodingState, conversation: CodingState | None 
     logger.info("skill_completion: selected route %s", completion_route)
     completion_state: CodingState = {
         "skill_completion_route": completion_route,
-        "skill_rechecked_agent_status": state.get("skill_rechecked_agent_status", False)
-        or completion_route == "agent_status",
     }
     skill_response = (conversation or {}).get("skill_response", "")
     if completion_route == "human_in_the_loop":

@@ -16,9 +16,8 @@ from typing import Literal, TypeAlias, TypedDict
 
 TaskStatus = Literal["new", "enhance"]
 TaskType: TypeAlias = str
-AgentRoute = Literal["ai_orchestrator"]
-SkillRoute = Literal["backend", "frontend", "system_designer"]
-SkillCompletionRoute = Literal["agent_status", "human_in_the_loop", "end"]
+SkillRoute = Literal["backend", "frontend", "system_designer", "data_analysis"]
+SkillCompletionRoute = Literal["human_in_the_loop", "end"]
 
 
 class CodingState(TypedDict, total=False):
@@ -37,8 +36,6 @@ class CodingState(TypedDict, total=False):
     codex_chat: str
     full_access: bool
     task_type: TaskType
-    agent_status: str
-    agent_route: AgentRoute
     requested_skill: SkillRoute
     skill_route: SkillRoute
     skill_prompt: str
@@ -49,7 +46,5 @@ class CodingState(TypedDict, total=False):
     compact_conversation_tokens: int
     codex_chat_path: str
     skill_human_question: str
-    react_to_agent_status: bool
     skill_completion_route: SkillCompletionRoute
-    skill_rechecked_agent_status: bool
     response: str

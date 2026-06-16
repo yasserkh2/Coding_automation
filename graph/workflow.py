@@ -12,7 +12,6 @@ from codex.ports import CodexSpeaker
 from codex.service import CodexService
 
 from .nodes import (
-    AgentStatusNode,
     AiOrchestratorNode,
     BackendSkillNode,
     CodexSkillClassifier,
@@ -20,6 +19,7 @@ from .nodes import (
     CreateEnhanceProjectDocsNode,
     CreateProjectDirectoryNode,
     CreateProjectDocsNode,
+    DataAnalysisSkillNode,
     EnhanceProjectNode,
     FinalizeNewProjectNode,
     ImplementNewProjectNode,
@@ -31,7 +31,7 @@ from .nodes import (
     ProjectRouterNode,
     SystemDesignerSkillNode,
 )
-from .state import AgentRoute, CodingState, SkillCompletionRoute, SkillRoute, TaskStatus, TaskType
+from .state import CodingState, SkillCompletionRoute, SkillRoute, TaskStatus, TaskType
 
 
 DEFAULT_PROJECT_ROUTER = "project_router"
@@ -45,12 +45,12 @@ DEFAULT_IMPLEMENT_NEW_PROJECT = "implement_new_project"
 DEFAULT_FINALIZE_NEW_PROJECT = "finalize_new_project"
 DEFAULT_ENHANCE_PROJECT = "enhance_project"
 DEFAULT_CREATE_ENHANCE_PROJECT_DOCS = "create_enhance_project_docs"
-DEFAULT_AGENT_STATUS = "agent_status"
 DEFAULT_AI_ORCHESTRATOR = "ai_orchestrator"
 DEFAULT_HUMAN_IN_THE_LOOP = "human_in_the_loop"
 DEFAULT_BACKEND = "backend"
 DEFAULT_FRONTEND = "frontend"
 DEFAULT_SYSTEM_DESIGNER = "system_designer"
+DEFAULT_DATA_ANALYSIS = "data_analysis"
 DEFAULT_COMPACT_CONVERSATION = "compact_conversation"
 
 
@@ -58,12 +58,6 @@ def route_project_task(state: CodingState) -> TaskType:
     """Return the route selected by ``ProjectRouterNode``."""
 
     return state.get("task_type", "enhance_project")
-
-
-def route_agent_status(state: CodingState) -> AgentRoute:
-    """Return the next node selected by ``AgentStatusNode``."""
-
-    return state.get("agent_route", DEFAULT_AI_ORCHESTRATOR)
 
 
 def route_ai_orchestrator(state: CodingState) -> SkillRoute:
@@ -120,8 +114,7 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
         DEFAULT_CREATE_ENHANCE_PROJECT_DOCS,
         CreateEnhanceProjectDocsNode(node_speaker(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS)),
     )
-    graph.add_node(DEFAULT_AGENT_STATUS, AgentStatusNode())
-    skill_routes = (DEFAULT_BACKEND, DEFAULT_FRONTEND, DEFAULT_SYSTEM_DESIGNER)
+    skill_routes = (DEFAULT_BACKEND, DEFAULT_FRONTEND, DEFAULT_SYSTEM_DESIGNER, DEFAULT_DATA_ANALYSIS)
     graph.add_node(
         DEFAULT_AI_ORCHESTRATOR,
         AiOrchestratorNode(CodexSkillClassifier(node_speaker(DEFAULT_AI_ORCHESTRATOR), skill_routes)),
@@ -132,6 +125,10 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_node(
         DEFAULT_SYSTEM_DESIGNER,
         SystemDesignerSkillNode(node_speaker(DEFAULT_SYSTEM_DESIGNER), compact_conversation),
+    )
+    graph.add_node(
+        DEFAULT_DATA_ANALYSIS,
+        DataAnalysisSkillNode(node_speaker(DEFAULT_DATA_ANALYSIS), compact_conversation),
     )
     graph.add_node(DEFAULT_HUMAN_IN_THE_LOOP, HumanInTheLoopNode())
     graph.set_entry_point(project_router)
@@ -152,14 +149,7 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_edge(DEFAULT_IMPLEMENT_NEW_PROJECT, DEFAULT_FINALIZE_NEW_PROJECT)
     graph.add_edge(DEFAULT_FINALIZE_NEW_PROJECT, END)
     graph.add_edge(enhance_project, DEFAULT_CREATE_ENHANCE_PROJECT_DOCS)
-    graph.add_edge(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS, DEFAULT_AGENT_STATUS)
-    graph.add_conditional_edges(
-        DEFAULT_AGENT_STATUS,
-        route_agent_status,
-        {
-            DEFAULT_AI_ORCHESTRATOR: DEFAULT_AI_ORCHESTRATOR,
-        },
-    )
+    graph.add_edge(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS, DEFAULT_AI_ORCHESTRATOR)
     graph.add_conditional_edges(
         DEFAULT_AI_ORCHESTRATOR,
         route_ai_orchestrator,
@@ -167,16 +157,17 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
             DEFAULT_BACKEND: DEFAULT_BACKEND,
             DEFAULT_FRONTEND: DEFAULT_FRONTEND,
             DEFAULT_SYSTEM_DESIGNER: DEFAULT_SYSTEM_DESIGNER,
+            DEFAULT_DATA_ANALYSIS: DEFAULT_DATA_ANALYSIS,
         },
     )
     skill_completion_edges = {
-        DEFAULT_AGENT_STATUS: DEFAULT_AGENT_STATUS,
         DEFAULT_HUMAN_IN_THE_LOOP: DEFAULT_HUMAN_IN_THE_LOOP,
         "end": END,
     }
     graph.add_conditional_edges(DEFAULT_BACKEND, route_skill_completion, skill_completion_edges)
     graph.add_conditional_edges(DEFAULT_FRONTEND, route_skill_completion, skill_completion_edges)
     graph.add_conditional_edges(DEFAULT_SYSTEM_DESIGNER, route_skill_completion, skill_completion_edges)
+    graph.add_conditional_edges(DEFAULT_DATA_ANALYSIS, route_skill_completion, skill_completion_edges)
     graph.add_edge(DEFAULT_HUMAN_IN_THE_LOOP, END)
     return graph.compile()
 
@@ -189,7 +180,6 @@ def run_coding_graph(
     business_requirement: str | None = None,
     project_name: str | None = None,
     requested_skill: SkillRoute | None = None,
-    react_to_agent_status: bool = False,
     skill_max_turns: int | None = None,
     compact_conversation_tokens: int | None = None,
     speaker: CodexSpeaker | None = None,
@@ -206,8 +196,6 @@ def run_coding_graph(
         business_requirement: Required when ``task_status`` is ``"new"``.
         project_name: Optional folder name for first-task project setup.
         requested_skill: Optional explicit skill route for AI orchestration.
-        react_to_agent_status: Whether a skill node should loop once back to
-            ``agent_status`` before finishing.
         skill_max_turns: Maximum Codex turns for a selected skill agent. If
             omitted, ``graph.skill_max_turns`` from config is used.
         compact_conversation_tokens: Approximate token threshold before skill
@@ -236,7 +224,6 @@ def run_coding_graph(
             "project_dir": str(project_dir) if project_dir is not None else None,
             "full_access": full_access,
             "requested_skill": requested_skill,
-            "react_to_agent_status": react_to_agent_status,
             "skill_max_turns": effective_skill_max_turns,
             "compact_conversation_tokens": effective_compact_tokens,
         }

@@ -49,6 +49,9 @@ codex:
     system_designer:
       model: openai/gpt-5.4-mini
       reasoning_effort: minimal
+    data_analysis:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
     compact_conversation:
       model: openai/gpt-5.4-mini
       reasoning_effort: minimal

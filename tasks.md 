@@ -9,3 +9,12 @@ done ai tasks .md
 model config bug
 when intialize new project make .env.example empty
 intialize the project didnot make chat history 
+after finalize new peojject task or enhance project task detlete the content of current task 
+make the done ai task when we appened summarized    
+explain very well the task
+react is forced bug  
+didnot create jubter notebook in the new project itialization 
+data inputing
+react not working well 
+too huge history and redundancy 
+3 times iteration is a must (bug)

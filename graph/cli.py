@@ -47,13 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--requested-skill",
-        choices=["backend", "frontend", "system_designer"],
+        choices=["backend", "frontend", "system_designer", "data_analysis"],
         help="Force the AI orchestrator to route to a specific skill node.",
-    )
-    parser.add_argument(
-        "--react-to-agent-status",
-        action="store_true",
-        help="After a skill node runs, loop once back to agent_status before ending.",
     )
     parser.add_argument(
         "--skill-max-turns",
@@ -91,7 +86,6 @@ def main() -> None:
         args.business_requirement,
         args.project_name,
         args.requested_skill,
-        args.react_to_agent_status,
         args.skill_max_turns,
         args.compact_conversation_tokens,
         config_path=args.config,
