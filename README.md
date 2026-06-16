@@ -586,21 +586,21 @@ print(result["response"])
 You can also run it from the terminal:
 
 ```bash
-python3 -m graph.cli "# Task
+python3 -m graph.cli --task "# Task
 Create a file named hello.md with a short greeting." --project-dir ./projects/demo --project-name demo --task-status new --business-requirement "Build the first version of the demo project."
 ```
 
 When running from the repo virtual environment, use:
 
 ```bash
-.venv/bin/python -m graph.cli "# Task
+.venv/bin/python -m graph.cli --task "# Task
 Create a file named hello.md with a short greeting." --project-dir ./projects/demo --project-name demo --task-status new --business-requirement "Build the first version of the demo project."
 ```
 
 If the package is installed, you can use the console script:
 
 ```bash
-coding-graph "# Task
+coding-graph --task "# Task
 Create a file named hello.md with a short greeting." --project-dir ./projects/demo --project-name demo --task-status new --business-requirement "Build the first version of the demo project."
 ```
 
@@ -621,11 +621,10 @@ result = run_coding_graph(
 print(result["skill_route"])
 ```
 
-From the terminal, the first positional argument is the new task input that
-starts the enhancement process:
+From the terminal, `--task` is required and starts the enhancement process:
 
 ```bash
-.venv/bin/python -m graph.cli "# Task
+.venv/bin/python -m graph.cli --task "# Task
 Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
   --task-status enhance \
   --project-dir "/home/Yasser.hamed/Downloads/andalusia-chatbot" \
@@ -640,7 +639,7 @@ To let the selected skill node loop once back to `agent_status` before ending,
 add `--react-to-agent-status`:
 
 ```bash
-.venv/bin/python -m graph.cli "# Task
+.venv/bin/python -m graph.cli --task "# Task
 Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
   --task-status enhance \
   --project-dir "/home/Yasser.hamed/Downloads/andalusia-chatbot" \
@@ -659,7 +658,7 @@ graph:
 To override it for one run, set `--skill-max-turns`:
 
 ```bash
-.venv/bin/python -m graph.cli "# Task
+.venv/bin/python -m graph.cli --task "# Task
 Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
   --task-status enhance \
   --project-dir "/home/Yasser.hamed/Downloads/andalusia-chatbot" \
@@ -670,7 +669,7 @@ Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
 You can force a skill route:
 
 ```bash
-python3 -m graph.cli "# Task
+python3 -m graph.cli --task "# Task
 Polish the dashboard layout." \
   --project-dir ./projects/demo \
   --requested-skill frontend

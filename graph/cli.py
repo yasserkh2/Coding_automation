@@ -9,11 +9,26 @@ from pathlib import Path
 from .workflow import run_coding_graph
 
 
+def non_empty_task(value: str) -> str:
+    """Return a stripped task string or fail argparse validation."""
+
+    task = value.strip()
+    if not task:
+        raise argparse.ArgumentTypeError("task is required and cannot be empty.")
+    return task
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Create the CLI parser for graph execution."""
 
     parser = argparse.ArgumentParser(description="Run the LangGraph coding workflow.")
-    parser.add_argument("task_md", help="Task markdown/instructions to send through the graph.")
+    parser.add_argument(
+        "--task",
+        dest="task_md",
+        required=True,
+        type=non_empty_task,
+        help="Required task markdown/instructions to send through the graph.",
+    )
     parser.add_argument("--project-dir", default=".", help="Directory Codex should edit.")
     parser.add_argument("--full-access", action="store_true", help="Use danger-full-access mode.")
     parser.add_argument(
@@ -49,10 +64,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI args and require an explicit task input."""
+
+    return build_parser().parse_args(argv)
+
+
 def main() -> None:
     """Parse command-line arguments and run the graph once."""
 
-    args = build_parser().parse_args()
+    args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     result = run_coding_graph(
         args.task_md,

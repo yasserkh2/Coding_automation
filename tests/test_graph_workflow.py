@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 from graph import create_coding_graph, run_coding_graph
+from graph.cli import parse_args
 
 
 class FakeSpeaker:
@@ -116,6 +117,19 @@ class HumanReviewSkillSpeaker(FakeSpeaker):
 
 
 class CodingGraphTests(unittest.TestCase):
+    def test_cli_requires_task_parameter(self) -> None:
+        with self.assertRaises(SystemExit):
+            parse_args(["--task-status", "enhance"])
+
+    def test_cli_rejects_blank_task_parameter(self) -> None:
+        with self.assertRaises(SystemExit):
+            parse_args(["--task", "   ", "--task-status", "enhance"])
+
+    def test_cli_accepts_task_parameter(self) -> None:
+        args = parse_args(["--task", "# Task\nAdd login", "--task-status", "enhance"])
+
+        self.assertEqual(args.task_md, "# Task\nAdd login")
+
     def test_graph_routes_new_project_task(self) -> None:
         speaker = FakeSpeaker()
         temp_dir = tempfile.TemporaryDirectory()
