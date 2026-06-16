@@ -46,6 +46,7 @@ class CodingState(TypedDict, total=False):
     skill_transcript: str
     skill_turns_completed: int
     skill_max_turns: int
+    compact_conversation_tokens: int
     codex_chat_path: str
     skill_human_question: str
     react_to_agent_status: bool

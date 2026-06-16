@@ -8,6 +8,37 @@ from graph import create_coding_graph, run_coding_graph
 from graph.cli import parse_args
 
 
+def is_skill_prompt(prompt: str) -> bool:
+    return "skill agent for this project" in prompt or "skill ReAct agent for this project" in prompt
+
+
+def is_compact_conversation_prompt(prompt: str) -> bool:
+    return prompt.startswith("Compact conversation for this ")
+
+
+def compact_conversation_response() -> str:
+    return "\n".join(
+        [
+            "Current focus:",
+            "- Need another backend pass.",
+            "Important decisions and assumptions:",
+            "- Continue the backend ReAct loop.",
+            "Relevant files or areas:",
+            "- Current_Task.md",
+            "Actions already taken:",
+            "- Initial skill turn completed.",
+            "Verification and results:",
+            "- Not verified yet.",
+            "Open blockers or questions:",
+            "- None.",
+            "Remaining next actions:",
+            "- Continue with the next focused action.",
+            "Latest status:",
+            "- SKILL_STATUS: continue",
+        ]
+    )
+
+
 class FakeSpeaker:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str | Path | None, bool]] = []
@@ -19,6 +50,8 @@ class FakeSpeaker:
         full_access: bool = False,
     ) -> str:
         self.calls.append((prompt, project_dir, full_access))
+        if is_compact_conversation_prompt(prompt):
+            return compact_conversation_response()
         if prompt.startswith("Classify the prepared task"):
             task = prompt.split("Prepared task:", 1)[-1].lower()
             if any(term in task for term in ("api", "backend", "endpoint", "login")):
@@ -26,7 +59,7 @@ class FakeSpeaker:
             if any(term in task for term in ("frontend", "ui", "screen", "component")):
                 return "frontend"
             return "system_designer"
-        if "skill agent for this project" in prompt or prompt.startswith("Continue the "):
+        if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
             return "\n".join(
                 [
                     "Skill work completed.",
@@ -59,9 +92,11 @@ class ContinuingSkillSpeaker(FakeSpeaker):
         full_access: bool = False,
     ) -> str:
         self.calls.append((prompt, project_dir, full_access))
+        if is_compact_conversation_prompt(prompt):
+            return compact_conversation_response()
         if prompt.startswith("Classify the prepared task"):
             return "backend"
-        if "skill agent for this project" in prompt or prompt.startswith("Continue the "):
+        if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
             self.skill_calls += 1
             if self.skill_calls == 1:
                 return "Need another backend pass.\n\nSKILL_STATUS: continue"
@@ -90,7 +125,9 @@ class AlwaysContinuingSkillSpeaker(FakeSpeaker):
         full_access: bool = False,
     ) -> str:
         self.calls.append((prompt, project_dir, full_access))
-        if "skill agent for this project" in prompt or prompt.startswith("Continue the "):
+        if is_compact_conversation_prompt(prompt):
+            return compact_conversation_response()
+        if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
             self.skill_calls += 1
             return f"Still working turn {self.skill_calls}.\n\nSKILL_STATUS: continue"
         return f"handled: {prompt}"
@@ -104,7 +141,9 @@ class HumanReviewSkillSpeaker(FakeSpeaker):
         full_access: bool = False,
     ) -> str:
         self.calls.append((prompt, project_dir, full_access))
-        if "skill agent for this project" in prompt or prompt.startswith("Continue the "):
+        if is_compact_conversation_prompt(prompt):
+            return compact_conversation_response()
+        if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
             return "\n".join(
                 [
                     "I need the product owner to choose the auth policy before implementation.",
@@ -263,16 +302,16 @@ class CodingGraphTests(unittest.TestCase):
             "# AI Task\n\nImplemented the initial login screen.\n",
         )
         self.assertEqual(result["response"], "Backend skill is ready to handle Current_Task.md.")
-        self.assertIn("You are the backend skill agent", result["skill_prompt"])
+        self.assertIn("You are the backend skill ReAct agent", result["skill_prompt"])
         self.assertIn("Codex chat history:\nNo previous skill/codex chat history.", result["skill_prompt"])
         self.assertIn("Current task:\n# Current Task\n\n# Task\nAdd login", result["skill_prompt"])
         self.assertIn("Before `SKILL_STATUS: done`", result["skill_prompt"])
         self.assertIn("README.md, Done_AI_Tasks.md, Current_Task.md", result["skill_prompt"])
         self.assertIn(".env.example", result["skill_prompt"])
         self.assertIn("Never add real secrets to .env", result["skill_prompt"])
-        self.assertEqual(result["skill_turns_completed"], 1)
+        self.assertEqual(result["skill_turns_completed"], 2)
         self.assertIn("SKILL_STATUS: done", result["skill_response"])
-        self.assertEqual(len(speaker.calls), 3)
+        self.assertEqual(len(speaker.calls), 4)
         self.assertIn("Prepare a concise, task-specific handoff", speaker.calls[0][0])
         self.assertIn("Incoming task:\n# Task\nAdd login", speaker.calls[0][0])
         self.assertIn("Inspect only the project files needed", speaker.calls[0][0])
@@ -283,7 +322,10 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer", speaker.calls[1][0])
         self.assertIn("one of: backend, frontend, system_designer", speaker.calls[1][0])
         self.assertEqual(speaker.calls[1][1:], (str(project_dir), False))
-        self.assertIn("You are the backend skill agent", speaker.calls[2][0])
+        self.assertIn("You are the backend skill ReAct agent", speaker.calls[2][0])
+        self.assertIn("ReAct operating loop:", speaker.calls[2][0])
+        self.assertIn("Continue as a ReAct agent", speaker.calls[3][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
 
     def test_ai_orchestrator_can_route_to_requested_frontend_skill(self) -> None:
         speaker = FakeSpeaker()
@@ -314,11 +356,13 @@ class CodingGraphTests(unittest.TestCase):
             ],
         )
         self.assertEqual(result["response"], "Frontend skill is ready to handle Current_Task.md.")
-        self.assertIn("You are the frontend skill agent", result["skill_prompt"])
+        self.assertIn("You are the frontend skill ReAct agent", result["skill_prompt"])
         self.assertIn("Codex chat history:\nNo previous skill/codex chat history.", result["skill_prompt"])
         self.assertIn("Current task:\n# Current Task", result["skill_prompt"])
-        self.assertEqual(result["skill_turns_completed"], 1)
-        self.assertEqual(len(speaker.calls), 2)
+        self.assertEqual(result["skill_turns_completed"], 2)
+        self.assertEqual(len(speaker.calls), 3)
+        self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
 
     def test_ai_orchestrator_prefers_agent_named_in_task_over_classifier(self) -> None:
         speaker = FakeSpeaker()
@@ -335,7 +379,9 @@ class CodingGraphTests(unittest.TestCase):
 
         self.assertEqual(result["skill_route"], "frontend")
         self.assertEqual(result["response"], "Frontend skill is ready to handle Current_Task.md.")
-        self.assertEqual(len(speaker.calls), 2)
+        self.assertEqual(len(speaker.calls), 3)
+        self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
 
     def test_ai_orchestrator_can_route_to_system_designer_named_in_task(self) -> None:
         speaker = FakeSpeaker()
@@ -352,7 +398,9 @@ class CodingGraphTests(unittest.TestCase):
 
         self.assertEqual(result["skill_route"], "system_designer")
         self.assertEqual(result["response"], "System designer skill is ready to handle Current_Task.md.")
-        self.assertEqual(len(speaker.calls), 2)
+        self.assertEqual(len(speaker.calls), 3)
+        self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
 
     def test_skill_node_can_loop_once_back_to_agent_status(self) -> None:
         speaker = FakeSpeaker()
@@ -385,9 +433,13 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["skill_completion_route"], "end")
         self.assertTrue(result["skill_rechecked_agent_status"])
         self.assertEqual(result["response"], "Backend skill is ready to handle Current_Task.md.")
-        self.assertIn("You are the backend skill agent", result["skill_prompt"])
-        self.assertEqual(result["skill_turns_completed"], 1)
-        self.assertEqual(len(speaker.calls), 3)
+        self.assertIn("You are the backend skill ReAct agent", result["skill_prompt"])
+        self.assertEqual(result["skill_turns_completed"], 2)
+        self.assertEqual(len(speaker.calls), 5)
+        self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
+        self.assertIn("Continue as a ReAct agent", speaker.calls[4][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[4][0])
 
     def test_skill_node_can_continue_codex_conversation(self) -> None:
         speaker = ContinuingSkillSpeaker()
@@ -408,17 +460,18 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["skill_turns_completed"], 3)
         self.assertIn("SKILL_STATUS: done", result["skill_response"])
         self.assertIn("Checked README.md", result["skill_response"])
-        self.assertIn("skill:\nYou are the backend skill agent", result["skill_transcript"])
+        self.assertIn("skill:\nYou are the backend skill ReAct agent", result["skill_transcript"])
         self.assertIn("codex:\nNeed another backend pass.", result["skill_transcript"])
-        self.assertIn("skill:\nContinue the backend skill-agent session", result["skill_transcript"])
+        self.assertIn("skill:\nContinue the backend skill ReAct-agent session", result["skill_transcript"])
         self.assertIn("codex:\nBackend pass complete.", result["skill_transcript"])
         self.assertIn("skill:\nBefore the backend skill can be marked done", result["skill_transcript"])
-        self.assertIn("skill:\nYou are the backend skill agent", result["codex_chat"])
+        self.assertIn("skill:\nYou are the backend skill ReAct agent", result["codex_chat"])
         self.assertIn("codex:\nCompletion audit finished.", result["codex_chat"])
-        self.assertIn("Continue the backend skill-agent session", speaker.calls[2][0])
-        self.assertIn("Compact prior Codex responses:", speaker.calls[2][0])
-        self.assertIn("Turn 1 Codex response:\nNeed another backend pass.", speaker.calls[2][0])
-        self.assertNotIn("You are the backend skill agent", speaker.calls[2][0])
+        self.assertIn("Continue the backend skill ReAct-agent session", speaker.calls[2][0])
+        self.assertIn("Conversation context:", speaker.calls[2][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
+        self.assertIn("Full skill chat history:", speaker.calls[2][0])
+        self.assertIn("Need another backend pass.", speaker.calls[2][0])
         self.assertIn("Completion audit:", speaker.calls[2][0])
         self.assertIn("README.md, Done_AI_Tasks.md, Current_Task.md", speaker.calls[2][0])
         self.assertIn("Before the backend skill can be marked done", speaker.calls[3][0])
@@ -432,6 +485,31 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["codex_chat_path"], str(chat_history_path))
         self.assertTrue(chat_history_path.exists())
         self.assertIn("codex:\nCompletion audit finished.", chat_history_path.read_text(encoding="utf-8"))
+
+    def test_skill_followup_compacts_conversation_after_token_threshold(self) -> None:
+        speaker = ContinuingSkillSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nAdd backend endpoint",
+            project_dir=project_dir,
+            requested_skill="backend",
+            skill_max_turns=3,
+            compact_conversation_tokens=1,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_turns_completed"], 3)
+        self.assertIn("Compact conversation for this backend", speaker.calls[2][0])
+        self.assertIn("Transcript:", speaker.calls[2][0])
+        self.assertIn("Need another backend pass.", speaker.calls[2][0])
+        self.assertIn("Continue the backend skill ReAct-agent session", speaker.calls[3][0])
+        self.assertIn("Compact conversation: triggered.", speaker.calls[3][0])
+        self.assertIn("Current focus:", speaker.calls[3][0])
+        self.assertIn("- Need another backend pass.", speaker.calls[3][0])
 
     def test_skill_max_turns_defaults_to_config_value(self) -> None:
         speaker = AlwaysContinuingSkillSpeaker()
@@ -544,12 +622,14 @@ class CodingGraphTests(unittest.TestCase):
 
         self.assertEqual(result["skill_route"], "system_designer")
         self.assertEqual(result["response"], "System designer skill is ready to handle Current_Task.md.")
-        self.assertIn("You are the system designer skill agent", result["skill_prompt"])
+        self.assertIn("You are the system designer skill ReAct agent", result["skill_prompt"])
         self.assertIn("Codex chat history:\nNo previous skill/codex chat history.", result["skill_prompt"])
-        self.assertEqual(result["skill_turns_completed"], 1)
-        self.assertEqual(len(speaker.calls), 3)
+        self.assertEqual(result["skill_turns_completed"], 2)
+        self.assertEqual(len(speaker.calls), 4)
         self.assertIn("Classify the prepared task", speaker.calls[1][0])
         self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer", speaker.calls[1][0])
+        self.assertIn("Continue as a ReAct agent", speaker.calls[3][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
 
     def test_graph_requires_task_md(self) -> None:
         graph = create_coding_graph(FakeSpeaker())

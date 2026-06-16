@@ -60,6 +60,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Maximum Codex turns for the selected skill agent. Defaults to graph.skill_max_turns in config.yml.",
     )
+    parser.add_argument(
+        "--compact-conversation-tokens",
+        type=int,
+        help=(
+            "Approximate skill chat token threshold before using compact conversation. "
+            "Defaults to graph.compact_conversation_tokens in config.yml."
+        ),
+    )
     parser.add_argument("--config", type=Path, help="Path to an alternate config.yml file.")
     return parser
 
@@ -85,6 +93,7 @@ def main() -> None:
         args.requested_skill,
         args.react_to_agent_status,
         args.skill_max_turns,
+        args.compact_conversation_tokens,
         config_path=args.config,
     )
     print(result.get("response", ""))

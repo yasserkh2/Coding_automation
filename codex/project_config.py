@@ -27,6 +27,7 @@ DEFAULT_PROJECT_CONFIG: dict[str, Any] = {
             "enhance": ["task_status", "task_md"],
         },
         "skill_max_turns": 3,
+        "compact_conversation_tokens": 10_000,
     },
     "codex": {
         "model_provider": "openrouter",

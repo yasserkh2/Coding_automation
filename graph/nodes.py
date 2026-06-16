@@ -432,12 +432,14 @@ class BackendSkillNode:
     """Run the backend skill agent."""
 
     speaker: CodexSpeaker
+    summarizer: CodexSpeaker
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("backend: running")
         logger.info("backend: speaking with Codex")
-        skill_prompt = build_backend_skill_prompt(state.get("task_md", ""), state.get("codex_chat", ""))
-        conversation = run_skill_conversation("backend", skill_prompt, state, self.speaker)
+        codex_chat = build_prior_codex_chat_context("backend", state, self.summarizer)
+        skill_prompt = build_backend_skill_prompt(state.get("task_md", ""), codex_chat)
+        conversation = run_skill_conversation("backend", skill_prompt, state, self.speaker, self.summarizer)
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -451,12 +453,14 @@ class FrontendSkillNode:
     """Run the frontend skill agent."""
 
     speaker: CodexSpeaker
+    summarizer: CodexSpeaker
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("frontend: running")
         logger.info("frontend: speaking with Codex")
-        skill_prompt = build_frontend_skill_prompt(state.get("task_md", ""), state.get("codex_chat", ""))
-        conversation = run_skill_conversation("frontend", skill_prompt, state, self.speaker)
+        codex_chat = build_prior_codex_chat_context("frontend", state, self.summarizer)
+        skill_prompt = build_frontend_skill_prompt(state.get("task_md", ""), codex_chat)
+        conversation = run_skill_conversation("frontend", skill_prompt, state, self.speaker, self.summarizer)
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -470,12 +474,14 @@ class SystemDesignerSkillNode:
     """Run the system designer skill agent."""
 
     speaker: CodexSpeaker
+    summarizer: CodexSpeaker
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("system_designer: running")
         logger.info("system_designer: speaking with Codex")
-        skill_prompt = build_system_designer_skill_prompt(state.get("task_md", ""), state.get("codex_chat", ""))
-        conversation = run_skill_conversation("system_designer", skill_prompt, state, self.speaker)
+        codex_chat = build_prior_codex_chat_context("system_designer", state, self.summarizer)
+        skill_prompt = build_system_designer_skill_prompt(state.get("task_md", ""), codex_chat)
+        conversation = run_skill_conversation("system_designer", skill_prompt, state, self.speaker, self.summarizer)
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -634,14 +640,45 @@ def build_system_designer_skill_prompt(task_md: str, codex_chat: str = "") -> st
     )
 
 
-def build_skill_followup_prompt(skill_route: str, transcript: str) -> str:
+def build_skill_followup_prompt(skill_route: str, transcript: str, stage_instruction: str | None = None) -> str:
     """Build a follow-up prompt for a multi-turn skill conversation."""
 
     return render_prompt(
         "skills.followup_prompt",
         skill_route=skill_route,
         transcript=transcript.strip(),
+        stage_instruction=stage_instruction
+        or "Continue the ReAct loop from the previous turn: observe the current state, decide the next smallest useful action for this skill, act, report the result, and choose done/continue/human_review.",
         completion_audit=render_prompt("skills.completion_audit"),
+    )
+
+
+def build_compact_conversation_prompt(skill_route: str, transcript: str) -> str:
+    """Build the LLM prompt that compacts oversized skill conversation history."""
+
+    return render_prompt(
+        "skills.compact_conversation_prompt",
+        skill_route=skill_route,
+        transcript=transcript.strip(),
+    )
+
+
+def build_prior_codex_chat_context(skill_route: str, state: CodingState, summarizer: CodexSpeaker) -> str:
+    """Return prior Codex chat history, compacting it when it is too large."""
+
+    codex_chat = (state.get("codex_chat") or "").strip()
+    if not codex_chat:
+        return ""
+    threshold = max(1, int(state.get("compact_conversation_tokens", 10_000)))
+    estimated_tokens = estimate_tokens(codex_chat)
+    if estimated_tokens <= threshold:
+        return codex_chat
+    return compact_skill_conversation(
+        skill_route,
+        codex_chat,
+        summarizer,
+        state.get("project_dir"),
+        estimated_tokens,
     )
 
 
@@ -659,10 +696,12 @@ def run_skill_conversation(
     skill_prompt: str,
     state: CodingState,
     speaker: CodexSpeaker,
+    summarizer: CodexSpeaker,
 ) -> CodingState:
     """Run a bounded multi-turn skill conversation through Codex."""
 
     max_turns = max(1, int(state.get("skill_max_turns", 3)))
+    compact_conversation_tokens = max(1, int(state.get("compact_conversation_tokens", 10_000)))
     project_dir = state.get("project_dir")
     full_access = state.get("full_access", False)
     turns: list[tuple[str, str]] = []
@@ -672,6 +711,19 @@ def run_skill_conversation(
         logger.info("%s: Codex conversation turn %s/%s", skill_route, turn_index + 1, max_turns)
         response = speaker.speak(prompt, project_dir=project_dir, full_access=full_access)
         turns.append((prompt, response))
+        if turn_index == 0 and max_turns > 1 and not skill_response_needs_human_review(response):
+            prompt = build_skill_followup_prompt(
+                skill_route,
+                build_skill_conversation_context(
+                    skill_route,
+                    turns,
+                    summarizer,
+                    compact_conversation_tokens,
+                    project_dir,
+                ),
+                "Continue as a ReAct agent. Use the first turn's understanding as your observation, choose the next smallest task-specific action, make only that focused change or verification, report the result, then decide whether to continue, finish with audit, or ask for human review.",
+            )
+            continue
         if skill_response_is_done(response):
             if skill_response_has_completion_audit(response):
                 break
@@ -684,7 +736,16 @@ def run_skill_conversation(
             break
         if not skill_response_should_continue(response):
             break
-        prompt = build_skill_followup_prompt(skill_route, render_skill_followup_context(turns))
+        prompt = build_skill_followup_prompt(
+            skill_route,
+            build_skill_conversation_context(
+                skill_route,
+                turns,
+                summarizer,
+                compact_conversation_tokens,
+                project_dir,
+            ),
+        )
 
     codex_chat = state.get("codex_chat") or ""
     for skill_message, codex_response in turns:
@@ -725,15 +786,61 @@ def render_skill_transcript(turns: list[tuple[str, str]]) -> str:
     return "\n\n".join(sections)
 
 
-def render_skill_followup_context(turns: list[tuple[str, str]], max_turns: int = 2) -> str:
-    """Render compact prior Codex responses for low-cost follow-up prompts."""
+def build_skill_conversation_context(
+    skill_route: str,
+    turns: list[tuple[str, str]],
+    summarizer: CodexSpeaker,
+    compact_conversation_tokens: int,
+    project_dir: str | Path | None = None,
+) -> str:
+    """Return full history until it crosses the compact-conversation threshold."""
 
-    recent_turns = turns[-max_turns:]
-    sections: list[str] = []
-    first_turn_number = len(turns) - len(recent_turns) + 1
-    for offset, (_, response) in enumerate(recent_turns):
-        sections.append(f"Turn {first_turn_number + offset} Codex response:\n{response.strip()}")
-    return "\n\n".join(sections)
+    transcript = render_skill_transcript(turns)
+    estimated_tokens = estimate_tokens(transcript)
+    if estimated_tokens <= compact_conversation_tokens:
+        return render_uncompacted_skill_history(transcript, estimated_tokens, compact_conversation_tokens)
+    return compact_skill_conversation(skill_route, transcript, summarizer, project_dir, estimated_tokens)
+
+
+def render_uncompacted_skill_history(transcript: str, estimated_tokens: int, threshold: int) -> str:
+    """Render full skill chat history while it is under the compaction limit."""
+
+    return "\n".join(
+        [
+            "Compact conversation: not triggered.",
+            f"Estimated tokens: {estimated_tokens}/{threshold}.",
+            "Full skill chat history:",
+            transcript,
+        ]
+    )
+
+
+def compact_skill_conversation(
+    skill_route: str,
+    transcript: str,
+    summarizer: CodexSpeaker,
+    project_dir: str | Path | None = None,
+    estimated_tokens: int | None = None,
+) -> str:
+    """Use the configured LLM to compact oversized skill conversation history."""
+
+    summary_prompt = build_compact_conversation_prompt(skill_route, transcript)
+    summary = summarizer.speak(summary_prompt, project_dir=project_dir, full_access=False).strip()
+    header = "Compact conversation: triggered."
+    if estimated_tokens is not None:
+        header += f"\nEstimated source tokens before compaction: {estimated_tokens}."
+    return "\n\n".join(
+        [
+            header,
+            summary or "No important prior skill memory was returned by the compact conversation summarizer.",
+        ]
+    )
+
+
+def estimate_tokens(text: str) -> int:
+    """Return a rough token estimate for compaction decisions."""
+
+    return max(1, (len(text) + 3) // 4)
 
 
 def skill_response_is_done(response: str) -> bool:

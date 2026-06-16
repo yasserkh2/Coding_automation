@@ -186,12 +186,16 @@ codex:
     system_designer:
       model: openai/gpt-5.4-mini
       reasoning_effort: minimal
+    compact_conversation:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
 ```
 
 You can override any Codex setting per node, including `model_provider`,
 `model`, `provider_name`, `base_url`, `env_key`, `timeout_seconds`, and
 `reasoning_effort`. Supported reasoning effort values are `minimal`, `low`,
-`medium`, and `high`.
+`medium`, and `high`. The `compact_conversation` node is the LLM used when
+skill-chat history exceeds the configured compaction threshold.
 
 Create a Python virtual environment:
 
@@ -512,6 +516,15 @@ frontend         screens, components, forms, layout, styling, client behavior
 system_designer  architecture, module boundaries, data flow, contracts, risks
 ```
 
+Skill conversations run as a bounded ReAct-agent loop instead of a one-shot
+implementation prompt. Each skill turn asks Codex to observe the relevant task
+and project state, focus on one task-specific requirement, act with the smallest
+useful edit/verification/handoff update, report the result, then decide whether
+to continue, finish with audit, or ask for human review. Follow-up turns include
+an important conversation summary covering prior focus, actions, files,
+verification, blockers, remaining work, questions, and status so the skill can
+keep conquering the task step by step without restarting.
+
 By default, each skill node ends the graph after successful work. When
 `react_to_agent_status=True` or `--react-to-agent-status` is set, the selected
 skill node can route once back to `agent_status` before finishing. The one-time
@@ -520,8 +533,16 @@ guard prevents an accidental endless loop. A skill can also route to
 a `QUESTION: ...` line.
 
 Skill conversations are bounded by `graph.skill_max_turns` in `config.yml`. The
-default is 3 Codex turns per selected skill. You can override it per CLI run
-with `--skill-max-turns`.
+default is 3 Codex turns per selected skill: enough for observation/focus,
+focused action, and one extra continue/audit turn when needed. You can override
+it per CLI run with `--skill-max-turns`.
+
+The compact conversation feature is controlled by
+`graph.compact_conversation_tokens`, defaulting to roughly 10,000 tokens. Below
+that threshold, follow-up turns receive the full skill chat history. Above it,
+the graph asks the configurable `compact_conversation` LLM node to compact the
+history before building the next follow-up prompt. You can override the
+threshold per CLI run with `--compact-conversation-tokens`.
 Skill prompts ask Codex to end each response with one of three status lines:
 
 ```text
@@ -541,9 +562,11 @@ The graph also enforces this: if Codex returns `SKILL_STATUS: done` without
 clearly confirming the audit files, the skill sends one focused audit prompt
 before accepting completion.
 The first skill prompt includes prior skill/Codex chat history in role-style
-form when it exists. Follow-up turns are compact: they send only recent Codex
-responses and tell Codex to use `Current_Task.md` plus project files as the
-source of truth, which keeps context and cost smaller.
+form when it exists. Follow-up turns use full skill chat history until the
+compact conversation threshold is exceeded. After that, they send compacted
+memory produced by the configurable `compact_conversation` LLM node and tell
+Codex to use that memory together with `Current_Task.md`, `Done_AI_Tasks.md`,
+and project files as the source of truth.
 
 ```text
 skill:
@@ -653,9 +676,11 @@ The default maximum skill/Codex conversation length is configured in
 ```yaml
 graph:
   skill_max_turns: 3
+  compact_conversation_tokens: 10000
 ```
 
-To override it for one run, set `--skill-max-turns`:
+To override it for one run, set `--skill-max-turns` or
+`--compact-conversation-tokens`:
 
 ```bash
 .venv/bin/python -m graph.cli --task "# Task
@@ -663,7 +688,8 @@ Add a FastAPI backend skeleton for the Andalusia call center chatbot." \
   --task-status enhance \
   --project-dir "/home/Yasser.hamed/Downloads/andalusia-chatbot" \
   --requested-skill backend \
-  --skill-max-turns 3
+  --skill-max-turns 3 \
+  --compact-conversation-tokens 10000
 ```
 
 You can force a skill route:

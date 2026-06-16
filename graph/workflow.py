@@ -51,6 +51,7 @@ DEFAULT_HUMAN_IN_THE_LOOP = "human_in_the_loop"
 DEFAULT_BACKEND = "backend"
 DEFAULT_FRONTEND = "frontend"
 DEFAULT_SYSTEM_DESIGNER = "system_designer"
+DEFAULT_COMPACT_CONVERSATION = "compact_conversation"
 
 
 def route_project_task(state: CodingState) -> TaskType:
@@ -125,9 +126,13 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
         DEFAULT_AI_ORCHESTRATOR,
         AiOrchestratorNode(CodexSkillClassifier(node_speaker(DEFAULT_AI_ORCHESTRATOR), skill_routes)),
     )
-    graph.add_node(DEFAULT_BACKEND, BackendSkillNode(node_speaker(DEFAULT_BACKEND)))
-    graph.add_node(DEFAULT_FRONTEND, FrontendSkillNode(node_speaker(DEFAULT_FRONTEND)))
-    graph.add_node(DEFAULT_SYSTEM_DESIGNER, SystemDesignerSkillNode(node_speaker(DEFAULT_SYSTEM_DESIGNER)))
+    compact_conversation = node_speaker(DEFAULT_COMPACT_CONVERSATION)
+    graph.add_node(DEFAULT_BACKEND, BackendSkillNode(node_speaker(DEFAULT_BACKEND), compact_conversation))
+    graph.add_node(DEFAULT_FRONTEND, FrontendSkillNode(node_speaker(DEFAULT_FRONTEND), compact_conversation))
+    graph.add_node(
+        DEFAULT_SYSTEM_DESIGNER,
+        SystemDesignerSkillNode(node_speaker(DEFAULT_SYSTEM_DESIGNER), compact_conversation),
+    )
     graph.add_node(DEFAULT_HUMAN_IN_THE_LOOP, HumanInTheLoopNode())
     graph.set_entry_point(project_router)
     graph.add_conditional_edges(
@@ -186,6 +191,7 @@ def run_coding_graph(
     requested_skill: SkillRoute | None = None,
     react_to_agent_status: bool = False,
     skill_max_turns: int | None = None,
+    compact_conversation_tokens: int | None = None,
     speaker: CodexSpeaker | None = None,
     config_path: Path | None = None,
 ) -> CodingState:
@@ -204,12 +210,18 @@ def run_coding_graph(
             ``agent_status`` before finishing.
         skill_max_turns: Maximum Codex turns for a selected skill agent. If
             omitted, ``graph.skill_max_turns`` from config is used.
+        compact_conversation_tokens: Approximate token threshold before skill
+            chat history is compacted by the configured summarizer model.
         speaker: Optional Codex speaker implementation, mostly for tests.
     """
 
     project_config = load_project_config(config_path)
     configured_skill_max_turns = int(project_config["graph"].get("skill_max_turns", 3))
     effective_skill_max_turns = skill_max_turns if skill_max_turns is not None else configured_skill_max_turns
+    configured_compact_tokens = int(project_config["graph"].get("compact_conversation_tokens", 10_000))
+    effective_compact_tokens = (
+        compact_conversation_tokens if compact_conversation_tokens is not None else configured_compact_tokens
+    )
     if project_dir is None:
         config_root = config_path.parent if config_path else ROOT
         project_dir = resolve_config_path(str(project_config["project"]["projects_dir"]), config_root)
@@ -226,5 +238,6 @@ def run_coding_graph(
             "requested_skill": requested_skill,
             "react_to_agent_status": react_to_agent_status,
             "skill_max_turns": effective_skill_max_turns,
+            "compact_conversation_tokens": effective_compact_tokens,
         }
     )
