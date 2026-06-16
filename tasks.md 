@@ -5,3 +5,7 @@ Human in the loop
 done criteria
 run the project and insure it is working codex side 
 Frontend skill is ready to handle Current_Task.md. (bug)
+done ai tasks .md
+model config bug
+when intialize new project make .env.example empty
+intialize the project didnot make chat history 
