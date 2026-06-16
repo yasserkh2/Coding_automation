@@ -10,6 +10,7 @@ from codex.binary import CodexBinaryResolver
 from codex.config import CodexConfig
 from codex.project_config import load_project_config
 from codex.runner import CodexCliRunner
+from codex.service import CodexService
 
 
 class CodexBinaryResolverTests(unittest.TestCase):
@@ -141,6 +142,25 @@ class CodexCliRunnerTests(unittest.TestCase):
         self.assertIn("model_providers.openrouter.base_url=https://openrouter.ai/api/v1", command)
         self.assertIn("shell_environment_policy.inherit=all", command)
         self.assertEqual(command[-1], "Reply with OK only.")
+
+    def test_codex_service_passes_node_name_to_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.yml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "project:",
+                        "  root: .",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            service = CodexService(config_path=config_path, node_name="backend")
+
+        self.assertEqual(service.node_name, "backend")
+        self.assertEqual(service.runner.node_name, "backend")
 
 
 if __name__ == "__main__":

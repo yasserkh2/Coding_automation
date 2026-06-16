@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import threading
 from pathlib import Path
 
 from .binary import CodexBinaryResolver
@@ -23,10 +24,12 @@ class CodexCliRunner:
         config: CodexConfig | None = None,
         dotenv_loader: DotenvLoader | None = None,
         binary_resolver: CodexBinaryResolver | None = None,
+        node_name: str | None = None,
     ) -> None:
         self.config = config or CodexConfig.from_project_config()
         self.dotenv_loader = dotenv_loader or DotenvLoader(self.config.env_file)
         self.binary_resolver = binary_resolver or CodexBinaryResolver()
+        self.node_name = node_name or "codex_cli"
 
     def run(
         self,
@@ -43,23 +46,19 @@ class CodexCliRunner:
 
         resolved_project_dir = Path(project_dir or self.config.root).resolve()
         logger.info(
-            "codex_cli: starting project_dir=%s sandbox=%s timeout_seconds=%s reasoning_effort=%s",
+            "codex_cli[%s]: starting project_dir=%s sandbox=%s timeout_seconds=%s reasoning_effort=%s",
+            self.node_name,
             resolved_project_dir,
             sandbox,
             self.config.timeout_seconds,
             self.config.reasoning_effort,
         )
-        logger.info("codex_cli: prompt sent to Codex:\n%s", prompt)
-        result = subprocess.run(
+        logger.info("codex_cli[%s] >>> prompt sent to Codex:\n%s", self.node_name, prompt)
+        result = self._run_process(
             self._build_command(prompt, resolved_project_dir, sandbox, full_env),
-            cwd=str(resolved_project_dir),
-            env=self._build_environment(),
-            text=True,
-            capture_output=True,
-            timeout=self.config.timeout_seconds,
-            check=False,
+            resolved_project_dir,
         )
-        logger.info("codex_cli: finished with returncode=%s", result.returncode)
+        logger.info("codex_cli[%s]: finished with returncode=%s", self.node_name, result.returncode)
 
         if result.returncode != 0:
             raise RuntimeError(
@@ -69,6 +68,57 @@ class CodexCliRunner:
             )
 
         return result.stdout
+
+    def _run_process(self, command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        process = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            env=self._build_environment(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
+        )
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+
+        def stream(pipe, lines: list[str], stream_name: str) -> None:
+            if pipe is None:
+                return
+            for line in iter(pipe.readline, ""):
+                lines.append(line)
+                logger.info("codex_cli[%s] %s: %s", self.node_name, stream_name, line.rstrip())
+            pipe.close()
+
+        stdout_thread = threading.Thread(
+            target=stream,
+            args=(process.stdout, stdout_lines, "stdout"),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=stream,
+            args=(process.stderr, stderr_lines, "stderr"),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+
+        try:
+            returncode = process.wait(timeout=self.config.timeout_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+            raise
+
+        stdout_thread.join()
+        stderr_thread.join()
+        return subprocess.CompletedProcess(
+            command,
+            returncode,
+            stdout="".join(stdout_lines),
+            stderr="".join(stderr_lines),
+        )
 
     def _build_command(
         self,

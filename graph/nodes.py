@@ -117,6 +117,108 @@ def append_codex_chat(state: CodingState, skill_message: str, codex_response: st
     return "\n\n".join(part for part in (existing, turn) if part)
 
 
+def append_saved_history_context(skill_message: str, full_project_context: str) -> str:
+    """Return a saved chat message with the complete project diff attached."""
+
+    return "\n\n".join(
+        part
+        for part in (
+            skill_message.strip(),
+            "Full project software context saved for history:",
+            full_project_context.strip(),
+        )
+        if part
+    )
+
+
+def build_project_software_context(project_dir: str | Path | None, diff_max_chars: int | None = 12000) -> str:
+    """Build a compact software context block for skill prompts."""
+
+    if not project_dir:
+        return "Project directory was not provided."
+    root = Path(project_dir)
+    if not root.exists() or not root.is_dir():
+        return f"Project directory is unavailable: {root}"
+
+    sections = [
+        "Project structure:",
+        render_project_tree(root),
+        "",
+        "Git status:",
+        run_git_context(root, ["status", "--short"], "No git status available."),
+        "",
+        "Git diff summary:",
+        run_git_context(root, ["diff", "--stat"], "No git diff summary available."),
+        "",
+        "Git diff:",
+        render_git_diff_context(root, diff_max_chars),
+    ]
+    return "\n".join(sections).strip()
+
+
+def render_git_diff_context(root: Path, max_chars: int | None) -> str:
+    """Return git diff context, optionally capped for prompt use."""
+
+    diff = run_git_context(root, ["diff", "--"], "No git diff available.")
+    if max_chars is None:
+        return diff
+    return trim_context(diff, max_chars)
+
+
+def render_project_tree(root: Path, max_entries: int = 180) -> str:
+    """Render a small project tree from local files."""
+
+    ignored_dirs = {
+        ".git",
+        ".venv",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        "node_modules",
+        "dist",
+        "build",
+        "Chats_History",
+    }
+    entries: list[str] = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if any(part in ignored_dirs for part in relative.parts):
+            continue
+        if len(entries) >= max_entries:
+            entries.append(f"... truncated after {max_entries} entries")
+            break
+        suffix = "/" if path.is_dir() else ""
+        entries.append(f"- {relative}{suffix}")
+    return "\n".join(entries) if entries else "- No project files found."
+
+
+def run_git_context(root: Path, args: list[str], fallback: str) -> str:
+    """Run a read-only git command for software context."""
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    if result.returncode != 0:
+        return fallback
+    output = (result.stdout or result.stderr or "").strip()
+    return output or fallback
+
+
+def trim_context(text: str, max_chars: int) -> str:
+    """Trim large context blocks before embedding them in prompts."""
+
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 80].rstrip() + "\n... truncated; inspect project files for full diff."
+
+
 DEFAULT_ROUTES: dict[TaskStatus, TaskType] = {
     "new": "new_project",
     "enhance": "enhance_project",
@@ -438,7 +540,8 @@ class BackendSkillNode:
         logger.info("backend: running")
         logger.info("backend: speaking with Codex")
         codex_chat = build_prior_codex_chat_context("backend", state, self.summarizer)
-        skill_prompt = build_backend_skill_prompt(state.get("task_md", ""), codex_chat)
+        project_context = build_project_software_context(state.get("project_dir"))
+        skill_prompt = build_backend_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
         conversation = run_skill_conversation("backend", skill_prompt, state, self.speaker, self.summarizer)
         return {
             **conversation,
@@ -459,7 +562,8 @@ class FrontendSkillNode:
         logger.info("frontend: running")
         logger.info("frontend: speaking with Codex")
         codex_chat = build_prior_codex_chat_context("frontend", state, self.summarizer)
-        skill_prompt = build_frontend_skill_prompt(state.get("task_md", ""), codex_chat)
+        project_context = build_project_software_context(state.get("project_dir"))
+        skill_prompt = build_frontend_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
         conversation = run_skill_conversation("frontend", skill_prompt, state, self.speaker, self.summarizer)
         return {
             **conversation,
@@ -480,7 +584,8 @@ class SystemDesignerSkillNode:
         logger.info("system_designer: running")
         logger.info("system_designer: speaking with Codex")
         codex_chat = build_prior_codex_chat_context("system_designer", state, self.summarizer)
-        skill_prompt = build_system_designer_skill_prompt(state.get("task_md", ""), codex_chat)
+        project_context = build_project_software_context(state.get("project_dir"))
+        skill_prompt = build_system_designer_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
         conversation = run_skill_conversation("system_designer", skill_prompt, state, self.speaker, self.summarizer)
         return {
             **conversation,
@@ -607,46 +712,55 @@ def build_current_task_document(task_description: str) -> str:
     )
 
 
-def build_backend_skill_prompt(task_md: str, codex_chat: str = "") -> str:
+def build_backend_skill_prompt(task_md: str, codex_chat: str = "", project_context: str = "") -> str:
     """Build the backend skill agent prompt."""
 
     return render_prompt(
         "skills.backend_prompt",
         task_md=task_md.strip(),
         codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        project_context=project_context.strip() or "No project software context available.",
         completion_audit=render_prompt("skills.completion_audit"),
     )
 
 
-def build_frontend_skill_prompt(task_md: str, codex_chat: str = "") -> str:
+def build_frontend_skill_prompt(task_md: str, codex_chat: str = "", project_context: str = "") -> str:
     """Build the frontend skill agent prompt."""
 
     return render_prompt(
         "skills.frontend_prompt",
         task_md=task_md.strip(),
         codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        project_context=project_context.strip() or "No project software context available.",
         completion_audit=render_prompt("skills.completion_audit"),
     )
 
 
-def build_system_designer_skill_prompt(task_md: str, codex_chat: str = "") -> str:
+def build_system_designer_skill_prompt(task_md: str, codex_chat: str = "", project_context: str = "") -> str:
     """Build the system designer skill agent prompt."""
 
     return render_prompt(
         "skills.system_designer_prompt",
         task_md=task_md.strip(),
         codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        project_context=project_context.strip() or "No project software context available.",
         completion_audit=render_prompt("skills.completion_audit"),
     )
 
 
-def build_skill_followup_prompt(skill_route: str, transcript: str, stage_instruction: str | None = None) -> str:
+def build_skill_followup_prompt(
+    skill_route: str,
+    transcript: str,
+    project_context: str = "",
+    stage_instruction: str | None = None,
+) -> str:
     """Build a follow-up prompt for a multi-turn skill conversation."""
 
     return render_prompt(
         "skills.followup_prompt",
         skill_route=skill_route,
         transcript=transcript.strip(),
+        project_context=project_context.strip() or "No fresh project software context available.",
         stage_instruction=stage_instruction
         or "Continue the ReAct loop from the previous turn: observe the current state, decide the next smallest useful action for this skill, act, report the result, and choose done/continue/human_review.",
         completion_audit=render_prompt("skills.completion_audit"),
@@ -704,13 +818,14 @@ def run_skill_conversation(
     compact_conversation_tokens = max(1, int(state.get("compact_conversation_tokens", 10_000)))
     project_dir = state.get("project_dir")
     full_access = state.get("full_access", False)
-    turns: list[tuple[str, str]] = []
+    turns: list[tuple[str, str, str]] = []
     prompt = skill_prompt
 
     for turn_index in range(max_turns):
         logger.info("%s: Codex conversation turn %s/%s", skill_route, turn_index + 1, max_turns)
+        full_project_context = build_project_software_context(project_dir, diff_max_chars=None)
         response = speaker.speak(prompt, project_dir=project_dir, full_access=full_access)
-        turns.append((prompt, response))
+        turns.append((prompt, response, full_project_context))
         if turn_index == 0 and max_turns > 1 and not skill_response_needs_human_review(response):
             prompt = build_skill_followup_prompt(
                 skill_route,
@@ -721,6 +836,7 @@ def run_skill_conversation(
                     compact_conversation_tokens,
                     project_dir,
                 ),
+                build_project_software_context(project_dir),
                 "Continue as a ReAct agent. Use the first turn's understanding as your observation, choose the next smallest task-specific action, make only that focused change or verification, report the result, then decide whether to continue, finish with audit, or ask for human review.",
             )
             continue
@@ -745,12 +861,16 @@ def run_skill_conversation(
                 compact_conversation_tokens,
                 project_dir,
             ),
+            build_project_software_context(project_dir),
         )
 
     codex_chat = state.get("codex_chat") or ""
-    for skill_message, codex_response in turns:
+    saved_codex_chat = codex_chat
+    for skill_message, codex_response, full_project_context in turns:
         codex_chat = append_codex_chat({"codex_chat": codex_chat}, skill_message, codex_response)
-    codex_chat_path = save_codex_chat_history(project_dir, skill_route, codex_chat)
+        saved_skill_message = append_saved_history_context(skill_message, full_project_context)
+        saved_codex_chat = append_codex_chat({"codex_chat": saved_codex_chat}, saved_skill_message, codex_response)
+    codex_chat_path = save_codex_chat_history(project_dir, skill_route, saved_codex_chat)
 
     return {
         "codex_chat": codex_chat,
@@ -777,18 +897,18 @@ def save_codex_chat_history(project_dir: str | Path | None, skill_route: str, co
     return path
 
 
-def render_skill_transcript(turns: list[tuple[str, str]]) -> str:
+def render_skill_transcript(turns: list[tuple[str, str, str]]) -> str:
     """Render skill conversation turns into a prompt-friendly transcript."""
 
     sections: list[str] = []
-    for prompt, response in turns:
+    for prompt, response, _full_project_context in turns:
         sections.append(f"skill:\n{prompt.strip()}\n\ncodex:\n{response.strip()}")
     return "\n\n".join(sections)
 
 
 def build_skill_conversation_context(
     skill_route: str,
-    turns: list[tuple[str, str]],
+    turns: list[tuple[str, str, str]],
     summarizer: CodexSpeaker,
     compact_conversation_tokens: int,
     project_dir: str | Path | None = None,

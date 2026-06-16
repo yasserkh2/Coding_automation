@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import tempfile
+import subprocess
 from pathlib import Path
 
 from graph import create_coding_graph, run_coding_graph
@@ -323,9 +324,17 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("one of: backend, frontend, system_designer", speaker.calls[1][0])
         self.assertEqual(speaker.calls[1][1:], (str(project_dir), False))
         self.assertIn("You are the backend skill ReAct agent", speaker.calls[2][0])
+        self.assertIn("Project software context:", speaker.calls[2][0])
+        self.assertIn("Project structure:", speaker.calls[2][0])
+        self.assertIn("- Current_Task.md", speaker.calls[2][0])
+        self.assertIn("Git status:", speaker.calls[2][0])
+        self.assertIn("Git diff summary:", speaker.calls[2][0])
         self.assertIn("ReAct operating loop:", speaker.calls[2][0])
         self.assertIn("Continue as a ReAct agent", speaker.calls[3][0])
         self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
+        self.assertIn("Fresh project software context after the previous Codex run:", speaker.calls[3][0])
+        self.assertIn("Project structure:", speaker.calls[3][0])
+        self.assertIn("Git diff:", speaker.calls[3][0])
 
     def test_ai_orchestrator_can_route_to_requested_frontend_skill(self) -> None:
         speaker = FakeSpeaker()
@@ -469,6 +478,9 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("codex:\nCompletion audit finished.", result["codex_chat"])
         self.assertIn("Continue the backend skill ReAct-agent session", speaker.calls[2][0])
         self.assertIn("Conversation context:", speaker.calls[2][0])
+        self.assertIn("Fresh project software context after the previous Codex run:", speaker.calls[2][0])
+        self.assertIn("Project structure:", speaker.calls[2][0])
+        self.assertIn("Git diff:", speaker.calls[2][0])
         self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
         self.assertIn("Full skill chat history:", speaker.calls[2][0])
         self.assertIn("Need another backend pass.", speaker.calls[2][0])
@@ -552,6 +564,52 @@ class CodingGraphTests(unittest.TestCase):
 
         chat_history_files = list((project_dir / "Chats_History").glob("backend_*.md"))
         self.assertEqual(len(chat_history_files), 2)
+
+    def test_saved_skill_chat_history_includes_uncapped_git_diff(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+        tracked_file = project_dir / "large.txt"
+        tracked_file.write_text("initial\n", encoding="utf-8")
+        subprocess.run(["git", "init"], cwd=project_dir, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "add", "large.txt"], cwd=project_dir, check=True, capture_output=True, text=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test User",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "initial",
+            ],
+            cwd=project_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        large_diff_tail = "FULL_DIFF_TAIL_MARKER"
+        tracked_file.write_text(
+            "\n".join([f"changed line {index}" for index in range(1500)] + [large_diff_tail]),
+            encoding="utf-8",
+        )
+
+        speaker = FakeSpeaker()
+        result = run_coding_graph(
+            "# Task\nAdd backend endpoint",
+            project_dir=project_dir,
+            requested_skill="backend",
+            speaker=speaker,
+        )
+
+        self.assertIn("... truncated; inspect project files for full diff.", speaker.calls[1][0])
+        self.assertNotIn(large_diff_tail, speaker.calls[1][0])
+        chat_history_path = Path(result["codex_chat_path"])
+        chat_history = chat_history_path.read_text(encoding="utf-8")
+        self.assertIn("Full project software context saved for history:", chat_history)
+        self.assertIn(large_diff_tail, chat_history)
 
     def test_skill_max_turns_can_be_configured(self) -> None:
         speaker = AlwaysContinuingSkillSpeaker()
