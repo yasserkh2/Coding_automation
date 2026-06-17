@@ -47,7 +47,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--requested-skill",
-        choices=["backend", "frontend", "system_designer", "data_analysis"],
+        choices=[
+            "backend",
+            "frontend",
+            "system_designer",
+            "data_analysis",
+            "ml_data_preparation",
+            "model_training",
+            "model_evaluation",
+        ],
         help="Force the AI orchestrator to route to a specific skill node.",
     )
     parser.add_argument(

@@ -28,7 +28,7 @@ class SkillClassifier(Protocol):
         project_dir: str | Path | None = None,
         full_access: bool = False,
     ) -> str | None:
-        """Return backend, frontend, system_designer, data_analysis, or None."""
+        """Return a supported skill route or None."""
 
 
 @dataclass(frozen=True)
@@ -603,6 +603,72 @@ class DataAnalysisSkillNode:
 
 
 @dataclass(frozen=True)
+class MLDataPreparationSkillNode:
+    """Run the ML data preparation skill agent."""
+
+    speaker: CodexSpeaker
+    summarizer: CodexSpeaker
+
+    def __call__(self, state: CodingState) -> CodingState:
+        logger.info("ml_data_preparation: running")
+        logger.info("ml_data_preparation: speaking with Codex")
+        codex_chat = build_prior_codex_chat_context("ml_data_preparation", state, self.summarizer)
+        project_context = build_project_software_context(state.get("project_dir"))
+        skill_prompt = build_ml_data_preparation_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
+        conversation = run_skill_conversation("ml_data_preparation", skill_prompt, state, self.speaker, self.summarizer)
+        return {
+            **conversation,
+            **skill_completion_state(state, conversation),
+            "project_setup": append_setup_step(state, "ml_data_preparation"),
+            "response": render_prompt("responses.ml_data_preparation_ready"),
+        }
+
+
+@dataclass(frozen=True)
+class ModelTrainingSkillNode:
+    """Run the model training skill agent."""
+
+    speaker: CodexSpeaker
+    summarizer: CodexSpeaker
+
+    def __call__(self, state: CodingState) -> CodingState:
+        logger.info("model_training: running")
+        logger.info("model_training: speaking with Codex")
+        codex_chat = build_prior_codex_chat_context("model_training", state, self.summarizer)
+        project_context = build_project_software_context(state.get("project_dir"))
+        skill_prompt = build_model_training_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
+        conversation = run_skill_conversation("model_training", skill_prompt, state, self.speaker, self.summarizer)
+        return {
+            **conversation,
+            **skill_completion_state(state, conversation),
+            "project_setup": append_setup_step(state, "model_training"),
+            "response": render_prompt("responses.model_training_ready"),
+        }
+
+
+@dataclass(frozen=True)
+class ModelEvaluationSkillNode:
+    """Run the model evaluation skill agent."""
+
+    speaker: CodexSpeaker
+    summarizer: CodexSpeaker
+
+    def __call__(self, state: CodingState) -> CodingState:
+        logger.info("model_evaluation: running")
+        logger.info("model_evaluation: speaking with Codex")
+        codex_chat = build_prior_codex_chat_context("model_evaluation", state, self.summarizer)
+        project_context = build_project_software_context(state.get("project_dir"))
+        skill_prompt = build_model_evaluation_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
+        conversation = run_skill_conversation("model_evaluation", skill_prompt, state, self.speaker, self.summarizer)
+        return {
+            **conversation,
+            **skill_completion_state(state, conversation),
+            "project_setup": append_setup_step(state, "model_evaluation"),
+            "response": render_prompt("responses.model_evaluation_ready"),
+        }
+
+
+@dataclass(frozen=True)
 class HumanInTheLoopNode:
     """Placeholder node for pausing enhancement work for human review."""
 
@@ -760,6 +826,42 @@ def build_data_analysis_skill_prompt(task_md: str, codex_chat: str = "", project
 
     return render_prompt(
         "skills.data_analysis_prompt",
+        task_md=task_md.strip(),
+        codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        project_context=project_context.strip() or "No project software context available.",
+        completion_audit=render_prompt("skills.completion_audit"),
+    )
+
+
+def build_ml_data_preparation_skill_prompt(task_md: str, codex_chat: str = "", project_context: str = "") -> str:
+    """Build the ML data preparation skill agent prompt."""
+
+    return render_prompt(
+        "skills.ml_data_preparation_prompt",
+        task_md=task_md.strip(),
+        codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        project_context=project_context.strip() or "No project software context available.",
+        completion_audit=render_prompt("skills.completion_audit"),
+    )
+
+
+def build_model_training_skill_prompt(task_md: str, codex_chat: str = "", project_context: str = "") -> str:
+    """Build the model training skill agent prompt."""
+
+    return render_prompt(
+        "skills.model_training_prompt",
+        task_md=task_md.strip(),
+        codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
+        project_context=project_context.strip() or "No project software context available.",
+        completion_audit=render_prompt("skills.completion_audit"),
+    )
+
+
+def build_model_evaluation_skill_prompt(task_md: str, codex_chat: str = "", project_context: str = "") -> str:
+    """Build the model evaluation skill agent prompt."""
+
+    return render_prompt(
+        "skills.model_evaluation_prompt",
         task_md=task_md.strip(),
         codex_chat=codex_chat.strip() or "No previous skill/codex chat history.",
         project_context=project_context.strip() or "No project software context available.",
@@ -1028,7 +1130,15 @@ def skill_route_from_state(state: CodingState, classifier: SkillClassifier | Non
     """Choose a skill route from explicit input, LLM classifier, or local inference."""
 
     requested_skill = state.get("requested_skill")
-    if requested_skill in ("backend", "frontend", "system_designer", "data_analysis"):
+    if requested_skill in (
+        "backend",
+        "frontend",
+        "system_designer",
+        "data_analysis",
+        "ml_data_preparation",
+        "model_training",
+        "model_evaluation",
+    ):
         return requested_skill
 
     task_md = new_task_description_from_task_md(state.get("task_md", "")).lower()
@@ -1081,6 +1191,52 @@ def explicit_skill_route_from_task(task_md: str) -> str | None:
     explicit_routes = (
         ("backend", ("backend agent", "backend skill", "use backend", "route to backend")),
         ("frontend", ("frontend agent", "frontend skill", "use frontend", "route to frontend")),
+        (
+            "ml_data_preparation",
+            (
+                "ml data preparation agent",
+                "ml data preparation skill",
+                "data preparation agent",
+                "data preparation skill",
+                "data prep agent",
+                "data prep skill",
+                "preprocessing agent",
+                "preprocessing skill",
+                "use ml data preparation",
+                "use data preparation",
+                "route to ml data preparation",
+                "route to ml_data_preparation",
+                "route to data preparation",
+            ),
+        ),
+        (
+            "model_training",
+            (
+                "model training agent",
+                "model training skill",
+                "training agent",
+                "training skill",
+                "train model agent",
+                "train model skill",
+                "use model training",
+                "route to model training",
+                "route to model_training",
+            ),
+        ),
+        (
+            "model_evaluation",
+            (
+                "model evaluation agent",
+                "model evaluation skill",
+                "evaluation agent",
+                "evaluation skill",
+                "evaluate model agent",
+                "evaluate model skill",
+                "use model evaluation",
+                "route to model evaluation",
+                "route to model_evaluation",
+            ),
+        ),
         (
             "data_analysis",
             (

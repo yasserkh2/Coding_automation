@@ -52,6 +52,15 @@ codex:
     data_analysis:
       model: openai/gpt-5.4-mini
       reasoning_effort: minimal
+    ml_data_preparation:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    model_training:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
+    model_evaluation:
+      model: openai/gpt-5.4-mini
+      reasoning_effort: minimal
     compact_conversation:
       model: openai/gpt-5.4-mini
       reasoning_effort: minimal

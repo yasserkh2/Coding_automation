@@ -16,7 +16,15 @@ from typing import Literal, TypeAlias, TypedDict
 
 TaskStatus = Literal["new", "enhance"]
 TaskType: TypeAlias = str
-SkillRoute = Literal["backend", "frontend", "system_designer", "data_analysis"]
+SkillRoute = Literal[
+    "backend",
+    "frontend",
+    "system_designer",
+    "data_analysis",
+    "ml_data_preparation",
+    "model_training",
+    "model_evaluation",
+]
 SkillCompletionRoute = Literal["human_in_the_loop", "end"]
 
 

@@ -66,8 +66,9 @@
   - `create_enhance_project_docs` asks Codex to inspect the existing project,
     read `Done_AI_Tasks.md`, and write the active handoff to `Current_Task.md`.
   - The AI orchestrator can route enhancement work to backend, frontend, system
-    designer, or data analysis skill nodes using an explicit skill request, an
-    agent named in the task text, or an LLM-backed classifier.
+    designer, data analysis, ML data preparation, model training, or model
+    evaluation skill nodes using an explicit skill request, an agent named in
+    the task text, or an LLM-backed classifier.
   - Skill nodes chat with Codex, then either continue their bounded Codex turns,
     ask for human input, or end successfully.
   - `graph.cli` logs every graph node as it runs and logs the full prompt sent to
@@ -78,7 +79,9 @@
   Not built yet:
 
   - Full LangGraph manager agent.
-  - Real implementations behind the backend, frontend, and system designer skill nodes.
+  - Real implementations behind the backend, frontend, system designer, data
+    analysis, ML data preparation, model training, and model evaluation skill
+    nodes.
   - A2A server/client layer.
   - Task queue.
   - Git branch/commit automation.
@@ -187,6 +190,15 @@
         model: openai/gpt-5.4-mini
         reasoning_effort: minimal
       data_analysis:
+        model: openai/gpt-5.4-mini
+        reasoning_effort: minimal
+      ml_data_preparation:
+        model: openai/gpt-5.4-mini
+        reasoning_effort: minimal
+      model_training:
+        model: openai/gpt-5.4-mini
+        reasoning_effort: minimal
+      model_evaluation:
         model: openai/gpt-5.4-mini
         reasoning_effort: minimal
       compact_conversation:
@@ -467,6 +479,9 @@
         -> frontend
         -> system_designer
         -> data_analysis
+        -> ml_data_preparation
+        -> model_training
+        -> model_evaluation
         -> END or human_in_the_loop
   ```
 
@@ -489,14 +504,18 @@
   `ai_orchestrator` chooses a skill route from two signals. First, it uses an
   explicit request: `requested_skill` from the API/CLI, or a named agent in the
   task text such as `frontend agent`, `backend agent`, `system designer agent`,
-  or `data analysis agent`. If no agent is explicitly requested, it delegates to
-  the LLM-backed skill classifier:
+  `data analysis agent`, `ml data preparation agent`, `model training agent`,
+  or `model evaluation agent`. If no agent is explicitly requested, it delegates
+  to the LLM-backed skill classifier:
 
   ```text
   backend
   frontend
   system_designer
   data_analysis
+  ml_data_preparation
+  model_training
+  model_evaluation
   ```
 
   The classifier prompt lives in `graph/prompts.json`, and the allowed skill list
@@ -515,6 +534,9 @@
   frontend         screens, components, forms, layout, styling, client behavior
   system_designer  architecture, module boundaries, data flow, contracts, risks
   data_analysis    Data Understanding & Analysis in notebooks for datasets and ML models
+  ml_data_preparation  Cleaning, preprocessing, feature/label prep, and leakage-safe ML splits
+  model_training   Reproducible baselines, training runs, tuning, and fitted model artifacts
+  model_evaluation Metrics, error analysis, comparison, thresholds, calibration, and reports
   ```
 
   Skill conversations run as a bounded ReAct-agent loop instead of a one-shot
@@ -698,6 +720,33 @@
   Create an exploratory data analysis notebook for the training dataset." \
     --project-dir ./projects/demo \
     --requested-skill data_analysis
+  ```
+
+  For ML data preparation:
+
+  ```bash
+  python3 -m graph.cli --task "# Task
+  Clean and preprocess the training data, then create leakage-safe train/validation/test splits." \
+    --project-dir ./projects/demo \
+    --requested-skill ml_data_preparation
+  ```
+
+  For model training:
+
+  ```bash
+  python3 -m graph.cli --task "# Task
+  Train a baseline model from the prepared dataset and save the fitted artifact." \
+    --project-dir ./projects/demo \
+    --requested-skill model_training
+  ```
+
+  For model evaluation:
+
+  ```bash
+  python3 -m graph.cli --task "# Task
+  Evaluate the trained model on the held-out test set and write an evaluation report." \
+    --project-dir ./projects/demo \
+    --requested-skill model_evaluation
   ```
 
   ### CLI logs

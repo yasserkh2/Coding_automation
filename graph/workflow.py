@@ -27,6 +27,9 @@ from .nodes import (
     InitializeVenvNode,
     FrontendSkillNode,
     HumanInTheLoopNode,
+    MLDataPreparationSkillNode,
+    ModelEvaluationSkillNode,
+    ModelTrainingSkillNode,
     NewProjectNode,
     ProjectRouterNode,
     SystemDesignerSkillNode,
@@ -51,6 +54,9 @@ DEFAULT_BACKEND = "backend"
 DEFAULT_FRONTEND = "frontend"
 DEFAULT_SYSTEM_DESIGNER = "system_designer"
 DEFAULT_DATA_ANALYSIS = "data_analysis"
+DEFAULT_ML_DATA_PREPARATION = "ml_data_preparation"
+DEFAULT_MODEL_TRAINING = "model_training"
+DEFAULT_MODEL_EVALUATION = "model_evaluation"
 DEFAULT_COMPACT_CONVERSATION = "compact_conversation"
 
 
@@ -114,7 +120,15 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
         DEFAULT_CREATE_ENHANCE_PROJECT_DOCS,
         CreateEnhanceProjectDocsNode(node_speaker(DEFAULT_CREATE_ENHANCE_PROJECT_DOCS)),
     )
-    skill_routes = (DEFAULT_BACKEND, DEFAULT_FRONTEND, DEFAULT_SYSTEM_DESIGNER, DEFAULT_DATA_ANALYSIS)
+    skill_routes = (
+        DEFAULT_BACKEND,
+        DEFAULT_FRONTEND,
+        DEFAULT_SYSTEM_DESIGNER,
+        DEFAULT_DATA_ANALYSIS,
+        DEFAULT_ML_DATA_PREPARATION,
+        DEFAULT_MODEL_TRAINING,
+        DEFAULT_MODEL_EVALUATION,
+    )
     graph.add_node(
         DEFAULT_AI_ORCHESTRATOR,
         AiOrchestratorNode(CodexSkillClassifier(node_speaker(DEFAULT_AI_ORCHESTRATOR), skill_routes)),
@@ -129,6 +143,18 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_node(
         DEFAULT_DATA_ANALYSIS,
         DataAnalysisSkillNode(node_speaker(DEFAULT_DATA_ANALYSIS), compact_conversation),
+    )
+    graph.add_node(
+        DEFAULT_ML_DATA_PREPARATION,
+        MLDataPreparationSkillNode(node_speaker(DEFAULT_ML_DATA_PREPARATION), compact_conversation),
+    )
+    graph.add_node(
+        DEFAULT_MODEL_TRAINING,
+        ModelTrainingSkillNode(node_speaker(DEFAULT_MODEL_TRAINING), compact_conversation),
+    )
+    graph.add_node(
+        DEFAULT_MODEL_EVALUATION,
+        ModelEvaluationSkillNode(node_speaker(DEFAULT_MODEL_EVALUATION), compact_conversation),
     )
     graph.add_node(DEFAULT_HUMAN_IN_THE_LOOP, HumanInTheLoopNode())
     graph.set_entry_point(project_router)
@@ -158,6 +184,9 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
             DEFAULT_FRONTEND: DEFAULT_FRONTEND,
             DEFAULT_SYSTEM_DESIGNER: DEFAULT_SYSTEM_DESIGNER,
             DEFAULT_DATA_ANALYSIS: DEFAULT_DATA_ANALYSIS,
+            DEFAULT_ML_DATA_PREPARATION: DEFAULT_ML_DATA_PREPARATION,
+            DEFAULT_MODEL_TRAINING: DEFAULT_MODEL_TRAINING,
+            DEFAULT_MODEL_EVALUATION: DEFAULT_MODEL_EVALUATION,
         },
     )
     skill_completion_edges = {
@@ -168,6 +197,9 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
     graph.add_conditional_edges(DEFAULT_FRONTEND, route_skill_completion, skill_completion_edges)
     graph.add_conditional_edges(DEFAULT_SYSTEM_DESIGNER, route_skill_completion, skill_completion_edges)
     graph.add_conditional_edges(DEFAULT_DATA_ANALYSIS, route_skill_completion, skill_completion_edges)
+    graph.add_conditional_edges(DEFAULT_ML_DATA_PREPARATION, route_skill_completion, skill_completion_edges)
+    graph.add_conditional_edges(DEFAULT_MODEL_TRAINING, route_skill_completion, skill_completion_edges)
+    graph.add_conditional_edges(DEFAULT_MODEL_EVALUATION, route_skill_completion, skill_completion_edges)
     graph.add_edge(DEFAULT_HUMAN_IN_THE_LOOP, END)
     return graph.compile()
 

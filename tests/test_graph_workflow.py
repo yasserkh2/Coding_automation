@@ -57,6 +57,12 @@ class FakeSpeaker:
             task = prompt.split("Prepared task:", 1)[-1].lower()
             if any(term in task for term in ("api", "backend", "endpoint", "login")):
                 return "backend"
+            if any(term in task for term in ("evaluate", "evaluation", "metrics", "confusion matrix", "calibration")):
+                return "model_evaluation"
+            if any(term in task for term in ("preprocess", "clean", "split", "feature engineering")):
+                return "ml_data_preparation"
+            if any(term in task for term in ("train", "training", "fit model", "baseline model", "hyperparameter")):
+                return "model_training"
             if any(term in task for term in ("data", "notebook", "dataset", "eda", "machine learning", "ml model")):
                 return "data_analysis"
             if any(term in task for term in ("frontend", " ui ", "screen", "component")):
@@ -319,8 +325,14 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("If anything is unclear", speaker.calls[0][0])
         self.assertEqual(speaker.calls[0][1:], (str(project_dir), False))
         self.assertIn("Classify the prepared task", speaker.calls[1][0])
-        self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer\n- data_analysis", speaker.calls[1][0])
-        self.assertIn("one of: backend, frontend, system_designer, data_analysis", speaker.calls[1][0])
+        self.assertIn(
+            "Allowed routes:\n- backend\n- frontend\n- system_designer\n- data_analysis\n- ml_data_preparation\n- model_training\n- model_evaluation",
+            speaker.calls[1][0],
+        )
+        self.assertIn(
+            "one of: backend, frontend, system_designer, data_analysis, ml_data_preparation, model_training, model_evaluation",
+            speaker.calls[1][0],
+        )
         self.assertEqual(speaker.calls[1][1:], (str(project_dir), False))
         self.assertIn("You are the backend skill ReAct agent", speaker.calls[2][0])
         self.assertIn("Project software context:", speaker.calls[2][0])
@@ -430,6 +442,69 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("data_analysis", result["project_setup"])
         self.assertEqual(result["skill_turns_completed"], 2)
 
+    def test_ai_orchestrator_can_route_to_requested_ml_data_preparation_skill(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nPrepare the training data for ML with leakage-safe splits.",
+            project_dir=project_dir,
+            requested_skill="ml_data_preparation",
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "ml_data_preparation")
+        self.assertEqual(result["response"], "ML Data Preparation skill is ready to handle Current_Task.md.")
+        self.assertIn("You are the ML Data Preparation skill ReAct agent", result["skill_prompt"])
+        self.assertIn("Prevent leakage", result["skill_prompt"])
+        self.assertIn("ml_data_preparation", result["project_setup"])
+        self.assertEqual(result["skill_turns_completed"], 2)
+
+    def test_ai_orchestrator_can_route_to_requested_model_training_skill(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nTrain a baseline model from the prepared dataset.",
+            project_dir=project_dir,
+            requested_skill="model_training",
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "model_training")
+        self.assertEqual(result["response"], "Model Training skill is ready to handle Current_Task.md.")
+        self.assertIn("You are the Model Training skill ReAct agent", result["skill_prompt"])
+        self.assertIn("Keep data leakage controls intact", result["skill_prompt"])
+        self.assertIn("model_training", result["project_setup"])
+        self.assertEqual(result["skill_turns_completed"], 2)
+
+    def test_ai_orchestrator_can_route_to_requested_model_evaluation_skill(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nEvaluate the trained model on the held-out test set.",
+            project_dir=project_dir,
+            requested_skill="model_evaluation",
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "model_evaluation")
+        self.assertEqual(result["response"], "Model Evaluation skill is ready to handle Current_Task.md.")
+        self.assertIn("You are the Model Evaluation skill ReAct agent", result["skill_prompt"])
+        self.assertIn("Keep evaluation separate from training", result["skill_prompt"])
+        self.assertIn("model_evaluation", result["project_setup"])
+        self.assertEqual(result["skill_turns_completed"], 2)
+
     def test_ai_orchestrator_classifier_can_route_to_data_analysis_skill(self) -> None:
         speaker = FakeSpeaker()
         temp_dir = tempfile.TemporaryDirectory()
@@ -445,6 +520,54 @@ class CodingGraphTests(unittest.TestCase):
 
         self.assertEqual(result["skill_route"], "data_analysis")
         self.assertIn("You are the Data Understanding & Analysis skill ReAct agent", result["skill_prompt"])
+
+    def test_ai_orchestrator_classifier_can_route_to_ml_data_preparation_skill(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nClean and preprocess the tabular dataset, then create train validation test splits.",
+            project_dir=project_dir,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "ml_data_preparation")
+        self.assertIn("You are the ML Data Preparation skill ReAct agent", result["skill_prompt"])
+
+    def test_ai_orchestrator_classifier_can_route_to_model_training_skill(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nTrain a baseline model and save the fitted artifact.",
+            project_dir=project_dir,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "model_training")
+        self.assertIn("You are the Model Training skill ReAct agent", result["skill_prompt"])
+
+    def test_ai_orchestrator_classifier_can_route_to_model_evaluation_skill(self) -> None:
+        speaker = FakeSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nEvaluate the model metrics and create a confusion matrix.",
+            project_dir=project_dir,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["skill_route"], "model_evaluation")
+        self.assertIn("You are the Model Evaluation skill ReAct agent", result["skill_prompt"])
 
     def test_skill_node_ends_after_successful_completion(self) -> None:
         speaker = FakeSpeaker()
@@ -711,7 +834,10 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["skill_turns_completed"], 2)
         self.assertEqual(len(speaker.calls), 4)
         self.assertIn("Classify the prepared task", speaker.calls[1][0])
-        self.assertIn("Allowed routes:\n- backend\n- frontend\n- system_designer\n- data_analysis", speaker.calls[1][0])
+        self.assertIn(
+            "Allowed routes:\n- backend\n- frontend\n- system_designer\n- data_analysis\n- ml_data_preparation\n- model_training\n- model_evaluation",
+            speaker.calls[1][0],
+        )
         self.assertIn("Continue as a ReAct agent", speaker.calls[3][0])
         self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
 
@@ -747,6 +873,9 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("frontend", node_names)
         self.assertIn("system_designer", node_names)
         self.assertIn("data_analysis", node_names)
+        self.assertIn("ml_data_preparation", node_names)
+        self.assertIn("model_training", node_names)
+        self.assertIn("model_evaluation", node_names)
 
     def create_temp_config(self) -> str:
         temp_dir = tempfile.TemporaryDirectory()
