@@ -28,3 +28,9 @@ Better skill responces
 acceptance criteria
 not codex same session bug
 codex session control
+2 llm chats 
+what is best for logs storing 
+2026-06-17 13:26:18,107 INFO graph.nodes: ml_data_preparation: Codex executor turn 3/3   bug forcing 3 executions not llm decision  
+env setup for the notebook too and running req.txt in the venv too
+time to waite while running instead of token consumption 
+ML Data Preparation skill is ready to handle Current_Task.md.   edit

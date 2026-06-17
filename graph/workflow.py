@@ -11,6 +11,7 @@ from codex.project_config import load_project_config, resolve_config_path
 from codex.ports import CodexSpeaker
 from codex.service import CodexService
 
+from .run_logs import build_graph_run_id, graph_log_path, write_graph_event
 from .nodes import (
     AiOrchestratorNode,
     BackendSkillNode,
@@ -134,27 +135,61 @@ def create_coding_graph(speaker: CodexSpeaker | None = None, config_path: Path |
         AiOrchestratorNode(CodexSkillClassifier(node_speaker(DEFAULT_AI_ORCHESTRATOR), skill_routes)),
     )
     compact_conversation = node_speaker(DEFAULT_COMPACT_CONVERSATION)
-    graph.add_node(DEFAULT_BACKEND, BackendSkillNode(node_speaker(DEFAULT_BACKEND), compact_conversation))
-    graph.add_node(DEFAULT_FRONTEND, FrontendSkillNode(node_speaker(DEFAULT_FRONTEND), compact_conversation))
+    graph.add_node(
+        DEFAULT_BACKEND,
+        BackendSkillNode(
+            node_speaker(DEFAULT_BACKEND),
+            compact_conversation,
+            node_speaker(f"{DEFAULT_BACKEND}_codex"),
+        ),
+    )
+    graph.add_node(
+        DEFAULT_FRONTEND,
+        FrontendSkillNode(
+            node_speaker(DEFAULT_FRONTEND),
+            compact_conversation,
+            node_speaker(f"{DEFAULT_FRONTEND}_codex"),
+        ),
+    )
     graph.add_node(
         DEFAULT_SYSTEM_DESIGNER,
-        SystemDesignerSkillNode(node_speaker(DEFAULT_SYSTEM_DESIGNER), compact_conversation),
+        SystemDesignerSkillNode(
+            node_speaker(DEFAULT_SYSTEM_DESIGNER),
+            compact_conversation,
+            node_speaker(f"{DEFAULT_SYSTEM_DESIGNER}_codex"),
+        ),
     )
     graph.add_node(
         DEFAULT_DATA_ANALYSIS,
-        DataAnalysisSkillNode(node_speaker(DEFAULT_DATA_ANALYSIS), compact_conversation),
+        DataAnalysisSkillNode(
+            node_speaker(DEFAULT_DATA_ANALYSIS),
+            compact_conversation,
+            node_speaker(f"{DEFAULT_DATA_ANALYSIS}_codex"),
+        ),
     )
     graph.add_node(
         DEFAULT_ML_DATA_PREPARATION,
-        MLDataPreparationSkillNode(node_speaker(DEFAULT_ML_DATA_PREPARATION), compact_conversation),
+        MLDataPreparationSkillNode(
+            node_speaker(DEFAULT_ML_DATA_PREPARATION),
+            compact_conversation,
+            node_speaker(f"{DEFAULT_ML_DATA_PREPARATION}_codex"),
+        ),
     )
     graph.add_node(
         DEFAULT_MODEL_TRAINING,
-        ModelTrainingSkillNode(node_speaker(DEFAULT_MODEL_TRAINING), compact_conversation),
+        ModelTrainingSkillNode(
+            node_speaker(DEFAULT_MODEL_TRAINING),
+            compact_conversation,
+            node_speaker(f"{DEFAULT_MODEL_TRAINING}_codex"),
+        ),
     )
     graph.add_node(
         DEFAULT_MODEL_EVALUATION,
-        ModelEvaluationSkillNode(node_speaker(DEFAULT_MODEL_EVALUATION), compact_conversation),
+        ModelEvaluationSkillNode(
+            node_speaker(DEFAULT_MODEL_EVALUATION),
+            compact_conversation,
+            node_speaker(f"{DEFAULT_MODEL_EVALUATION}_codex"),
+        ),
     )
     graph.add_node(DEFAULT_HUMAN_IN_THE_LOOP, HumanInTheLoopNode())
     graph.set_entry_point(project_router)
@@ -246,17 +281,58 @@ def run_coding_graph(
         config_root = config_path.parent if config_path else ROOT
         project_dir = resolve_config_path(str(project_config["project"]["projects_dir"]), config_root)
 
-    app = create_coding_graph(speaker, config_path)
-    return app.invoke(
-        {
-            "task_status": task_status,
-            "business_requirement": business_requirement,
-            "task_md": task_md,
-            "project_name": project_name,
-            "project_dir": str(project_dir) if project_dir is not None else None,
-            "full_access": full_access,
-            "requested_skill": requested_skill,
-            "skill_max_turns": effective_skill_max_turns,
-            "compact_conversation_tokens": effective_compact_tokens,
-        }
+    run_id = build_graph_run_id()
+    project_dir_string = str(project_dir) if project_dir is not None else None
+    log_path = graph_log_path(project_dir_string, run_id)
+    write_graph_event(
+        project_dir_string,
+        run_id,
+        "graph_started",
+        node="graph",
+        graph_log_path_value=log_path,
+        allow_create=task_status == "new" or (Path(project_dir_string).exists() if project_dir_string else False),
+        task_status=task_status,
+        requested_skill=requested_skill,
+        full_access=full_access,
     )
+    app = create_coding_graph(speaker, config_path)
+    initial_state = {
+        "task_status": task_status,
+        "business_requirement": business_requirement,
+        "task_md": task_md,
+        "project_name": project_name,
+        "project_dir": project_dir_string,
+        "graph_run_id": run_id,
+        "graph_log_path": str(log_path) if log_path else "",
+        "full_access": full_access,
+        "requested_skill": requested_skill,
+        "skill_max_turns": effective_skill_max_turns,
+        "compact_conversation_tokens": effective_compact_tokens,
+    }
+    try:
+        result = app.invoke(initial_state)
+    except Exception as exc:
+        write_graph_event(
+            project_dir_string,
+            run_id,
+            "graph_failed",
+            node="graph",
+            graph_log_path_value=log_path,
+            allow_create=task_status == "new" or (Path(project_dir_string).exists() if project_dir_string else False),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise
+    write_graph_event(
+        result.get("project_dir") or project_dir_string,
+        run_id,
+        "graph_finished",
+        node="graph",
+        graph_log_path_value=result.get("graph_log_path") or log_path,
+        task_type=result.get("task_type"),
+        skill_route=result.get("skill_route"),
+        skill_completion_route=result.get("skill_completion_route"),
+        codex_executor_chat_path=result.get("codex_executor_chat_path"),
+        skill_agent_chat_path=result.get("skill_agent_chat_path"),
+    )
+    return result

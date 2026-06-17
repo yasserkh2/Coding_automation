@@ -40,6 +40,8 @@ class CodingState(TypedDict, total=False):
     task_md: str
     project_name: str | None
     project_dir: str | None
+    graph_run_id: str
+    graph_log_path: str
     project_setup: list[str]
     codex_chat: str
     full_access: bool
@@ -47,7 +49,12 @@ class CodingState(TypedDict, total=False):
     requested_skill: SkillRoute
     skill_route: SkillRoute
     skill_prompt: str
+    skill_agent_response: str
+    skill_agent_transcript: str
+    skill_agent_session_id: str
     skill_response: str
+    codex_instruction: str
+    codex_response: str
     skill_transcript: str
     skill_turns_completed: int
     skill_max_turns: int
@@ -55,6 +62,8 @@ class CodingState(TypedDict, total=False):
     codex_session_id: str
     skill_session_ids: dict[str, str]
     codex_chat_path: str
+    codex_executor_chat_path: str
+    skill_agent_chat_path: str
     skill_human_question: str
     skill_completion_route: SkillCompletionRoute
     response: str

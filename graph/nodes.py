@@ -13,6 +13,7 @@ from venv import EnvBuilder
 from codex.ports import CodexSessionResult, CodexSpeaker
 
 from .prompt_catalog import render_prompt
+from .run_logs import write_graph_event
 from .state import CodingState, TaskStatus, TaskType
 
 
@@ -109,6 +110,19 @@ def append_setup_step(state: CodingState, step: str) -> list[str]:
     return [*(state.get("project_setup") or []), step]
 
 
+def log_graph_event(state: CodingState, event: str, node: str, **fields: object) -> None:
+    """Append one graph event when run logging is configured."""
+
+    write_graph_event(
+        state.get("project_dir"),
+        state.get("graph_run_id"),
+        event,
+        node=node,
+        graph_log_path_value=state.get("graph_log_path"),
+        **fields,
+    )
+
+
 def append_codex_chat(state: CodingState, skill_message: str, codex_response: str) -> str:
     """Return role-style Codex chat history with a skill/codex turn appended."""
 
@@ -117,18 +131,57 @@ def append_codex_chat(state: CodingState, skill_message: str, codex_response: st
     return "\n\n".join(part for part in (existing, turn) if part)
 
 
-def append_saved_history_context(skill_message: str, full_project_context: str) -> str:
-    """Return a saved chat message with the complete project diff attached."""
+def append_skill_codex_chat(
+    state: CodingState,
+    skill_message: str,
+    skill_agent_response: str,
+    codex_instruction: str,
+    codex_response: str,
+) -> str:
+    """Return chat history for the separated skill-agent and Codex-executor turn."""
 
-    return "\n\n".join(
+    existing = (state.get("codex_chat") or "").strip()
+    turn = "\n\n".join(
         part
         for part in (
-            skill_message.strip(),
-            "Full project software context saved for history:",
-            full_project_context.strip(),
+            f"skill_agent_prompt:\n{skill_message.strip()}",
+            f"skill_agent:\n{skill_agent_response.strip()}",
+            f"codex_instruction:\n{codex_instruction.strip()}" if codex_instruction.strip() else "",
+            f"codex:\n{codex_response.strip()}" if codex_response.strip() else "",
         )
         if part
     )
+    return "\n\n".join(part for part in (existing, turn) if part)
+
+
+def append_skill_agent_chat(state: CodingState, skill_message: str, skill_agent_response: str) -> str:
+    """Return chat history for only the skill-agent controller conversation."""
+
+    existing = (state.get("codex_chat") or "").strip()
+    turn = "\n\n".join(
+        part
+        for part in (
+            f"skill_agent_prompt:\n{skill_message.strip()}",
+            f"skill_agent:\n{skill_agent_response.strip()}",
+        )
+        if part
+    )
+    return "\n\n".join(part for part in (existing, turn) if part)
+
+
+def append_codex_executor_chat(state: CodingState, codex_instruction: str, codex_response: str) -> str:
+    """Return chat history for only the Codex executor conversation."""
+
+    existing = (state.get("codex_chat") or "").strip()
+    turn = "\n\n".join(
+        part
+        for part in (
+            f"codex_instruction:\n{codex_instruction.strip()}" if codex_instruction.strip() else "",
+            f"codex:\n{codex_response.strip()}" if codex_response.strip() else "",
+        )
+        if part
+    )
+    return "\n\n".join(part for part in (existing, turn) if part)
 
 
 def build_project_software_context(project_dir: str | Path | None, diff_max_chars: int | None = 12000) -> str:
@@ -520,6 +573,7 @@ class BackendSkillNode:
 
     speaker: CodexSpeaker
     summarizer: CodexSpeaker
+    codex_speaker: CodexSpeaker | None = None
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("backend: running")
@@ -527,7 +581,14 @@ class BackendSkillNode:
         codex_chat = build_prior_codex_chat_context("backend", state, self.summarizer)
         project_context = build_project_software_context(state.get("project_dir"))
         skill_prompt = build_backend_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
-        conversation = run_skill_conversation("backend", skill_prompt, state, self.speaker, self.summarizer)
+        conversation = run_skill_conversation(
+            "backend",
+            skill_prompt,
+            state,
+            self.speaker,
+            self.codex_speaker or self.speaker,
+            self.summarizer,
+        )
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -542,6 +603,7 @@ class FrontendSkillNode:
 
     speaker: CodexSpeaker
     summarizer: CodexSpeaker
+    codex_speaker: CodexSpeaker | None = None
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("frontend: running")
@@ -549,7 +611,14 @@ class FrontendSkillNode:
         codex_chat = build_prior_codex_chat_context("frontend", state, self.summarizer)
         project_context = build_project_software_context(state.get("project_dir"))
         skill_prompt = build_frontend_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
-        conversation = run_skill_conversation("frontend", skill_prompt, state, self.speaker, self.summarizer)
+        conversation = run_skill_conversation(
+            "frontend",
+            skill_prompt,
+            state,
+            self.speaker,
+            self.codex_speaker or self.speaker,
+            self.summarizer,
+        )
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -564,6 +633,7 @@ class SystemDesignerSkillNode:
 
     speaker: CodexSpeaker
     summarizer: CodexSpeaker
+    codex_speaker: CodexSpeaker | None = None
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("system_designer: running")
@@ -571,7 +641,14 @@ class SystemDesignerSkillNode:
         codex_chat = build_prior_codex_chat_context("system_designer", state, self.summarizer)
         project_context = build_project_software_context(state.get("project_dir"))
         skill_prompt = build_system_designer_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
-        conversation = run_skill_conversation("system_designer", skill_prompt, state, self.speaker, self.summarizer)
+        conversation = run_skill_conversation(
+            "system_designer",
+            skill_prompt,
+            state,
+            self.speaker,
+            self.codex_speaker or self.speaker,
+            self.summarizer,
+        )
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -586,6 +663,7 @@ class DataAnalysisSkillNode:
 
     speaker: CodexSpeaker
     summarizer: CodexSpeaker
+    codex_speaker: CodexSpeaker | None = None
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("data_analysis: running")
@@ -593,7 +671,14 @@ class DataAnalysisSkillNode:
         codex_chat = build_prior_codex_chat_context("data_analysis", state, self.summarizer)
         project_context = build_project_software_context(state.get("project_dir"))
         skill_prompt = build_data_analysis_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
-        conversation = run_skill_conversation("data_analysis", skill_prompt, state, self.speaker, self.summarizer)
+        conversation = run_skill_conversation(
+            "data_analysis",
+            skill_prompt,
+            state,
+            self.speaker,
+            self.codex_speaker or self.speaker,
+            self.summarizer,
+        )
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -608,6 +693,7 @@ class MLDataPreparationSkillNode:
 
     speaker: CodexSpeaker
     summarizer: CodexSpeaker
+    codex_speaker: CodexSpeaker | None = None
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("ml_data_preparation: running")
@@ -615,7 +701,14 @@ class MLDataPreparationSkillNode:
         codex_chat = build_prior_codex_chat_context("ml_data_preparation", state, self.summarizer)
         project_context = build_project_software_context(state.get("project_dir"))
         skill_prompt = build_ml_data_preparation_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
-        conversation = run_skill_conversation("ml_data_preparation", skill_prompt, state, self.speaker, self.summarizer)
+        conversation = run_skill_conversation(
+            "ml_data_preparation",
+            skill_prompt,
+            state,
+            self.speaker,
+            self.codex_speaker or self.speaker,
+            self.summarizer,
+        )
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -630,6 +723,7 @@ class ModelTrainingSkillNode:
 
     speaker: CodexSpeaker
     summarizer: CodexSpeaker
+    codex_speaker: CodexSpeaker | None = None
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("model_training: running")
@@ -637,7 +731,14 @@ class ModelTrainingSkillNode:
         codex_chat = build_prior_codex_chat_context("model_training", state, self.summarizer)
         project_context = build_project_software_context(state.get("project_dir"))
         skill_prompt = build_model_training_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
-        conversation = run_skill_conversation("model_training", skill_prompt, state, self.speaker, self.summarizer)
+        conversation = run_skill_conversation(
+            "model_training",
+            skill_prompt,
+            state,
+            self.speaker,
+            self.codex_speaker or self.speaker,
+            self.summarizer,
+        )
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -652,6 +753,7 @@ class ModelEvaluationSkillNode:
 
     speaker: CodexSpeaker
     summarizer: CodexSpeaker
+    codex_speaker: CodexSpeaker | None = None
 
     def __call__(self, state: CodingState) -> CodingState:
         logger.info("model_evaluation: running")
@@ -659,7 +761,14 @@ class ModelEvaluationSkillNode:
         codex_chat = build_prior_codex_chat_context("model_evaluation", state, self.summarizer)
         project_context = build_project_software_context(state.get("project_dir"))
         skill_prompt = build_model_evaluation_skill_prompt(state.get("task_md", ""), codex_chat, project_context)
-        conversation = run_skill_conversation("model_evaluation", skill_prompt, state, self.speaker, self.summarizer)
+        conversation = run_skill_conversation(
+            "model_evaluation",
+            skill_prompt,
+            state,
+            self.speaker,
+            self.codex_speaker or self.speaker,
+            self.summarizer,
+        )
         return {
             **conversation,
             **skill_completion_state(state, conversation),
@@ -898,6 +1007,15 @@ def build_compact_conversation_prompt(skill_route: str, transcript: str) -> str:
     )
 
 
+def build_skill_agent_control_prompt(skill_prompt: str) -> str:
+    """Wrap a skill prompt so the skill agent controls Codex instead of executing."""
+
+    return render_prompt(
+        "skills.agent_control_prompt",
+        skill_prompt=skill_prompt.strip(),
+    )
+
+
 def build_prior_codex_chat_context(skill_route: str, state: CodingState, summarizer: CodexSpeaker) -> str:
     """Return prior Codex chat history, compacting it when it is too large."""
 
@@ -930,7 +1048,8 @@ def run_skill_conversation(
     skill_route: str,
     skill_prompt: str,
     state: CodingState,
-    speaker: CodexSpeaker,
+    skill_speaker: CodexSpeaker,
+    codex_speaker: CodexSpeaker,
     summarizer: CodexSpeaker,
 ) -> CodingState:
     """Run a bounded multi-turn skill conversation through Codex."""
@@ -939,34 +1058,159 @@ def run_skill_conversation(
     compact_conversation_tokens = max(1, int(state.get("compact_conversation_tokens", 10_000)))
     project_dir = state.get("project_dir")
     full_access = state.get("full_access", False)
-    turns: list[tuple[str, str, str]] = []
-    prompt = skill_prompt
+    turns: list[tuple[str, str, str, str, str]] = []
+    skill_agent_prompt = build_skill_agent_control_prompt(skill_prompt)
     session_id = (state.get("skill_session_ids") or {}).get(skill_route) or state.get("codex_session_id")
+    skill_agent_session_id = state.get("skill_agent_session_id")
+    log_graph_event(
+        state,
+        "skill_conversation_started",
+        skill_route,
+        skill_route=skill_route,
+        max_turns=max_turns,
+        compact_conversation_tokens=compact_conversation_tokens,
+    )
 
     for turn_index in range(max_turns):
-        logger.info("%s: Codex conversation turn %s/%s", skill_route, turn_index + 1, max_turns)
-        if session_id:
-            logger.info("%s: continuing Codex session %s", skill_route, session_id)
+        logger.info("%s: skill-agent conversation turn %s/%s", skill_route, turn_index + 1, max_turns)
+        if skill_agent_session_id:
+            logger.info("%s: continuing skill-agent session %s", skill_route, skill_agent_session_id)
+            log_graph_event(
+                state,
+                "skill_agent_session_continuing",
+                skill_route,
+                turn_index=turn_index + 1,
+                skill_agent_session_id=skill_agent_session_id,
+            )
         else:
-            logger.info("%s: starting a new Codex session", skill_route)
+            logger.info("%s: starting a new skill-agent session", skill_route)
+            log_graph_event(state, "skill_agent_session_starting", skill_route, turn_index=turn_index + 1)
+        previous_skill_agent_session_id = skill_agent_session_id
+        skill_agent_result = speak_skill_turn(
+            skill_speaker,
+            skill_agent_prompt,
+            project_dir=project_dir,
+            full_access=False,
+            session_id=skill_agent_session_id,
+        )
+        skill_agent_response = skill_agent_result.response
+        skill_agent_session_id = skill_agent_result.session_id or skill_agent_session_id
+        if skill_agent_session_id and not previous_skill_agent_session_id:
+            logger.info("%s: started skill-agent session %s", skill_route, skill_agent_session_id)
+            log_graph_event(
+                state,
+                "skill_agent_session_started",
+                skill_route,
+                turn_index=turn_index + 1,
+                skill_agent_session_id=skill_agent_session_id,
+            )
+        elif skill_agent_session_id:
+            logger.info("%s: continued skill-agent session %s", skill_route, skill_agent_session_id)
+            log_graph_event(
+                state,
+                "skill_agent_session_continued",
+                skill_route,
+                turn_index=turn_index + 1,
+                skill_agent_session_id=skill_agent_session_id,
+            )
+        codex_instruction = extract_codex_instruction(skill_agent_response)
+        skill_status = skill_status_from_response(skill_agent_response)
+        log_graph_event(
+            state,
+            "skill_status_detected",
+            skill_route,
+            turn_index=turn_index + 1,
+            skill_status=skill_status,
+            codex_instruction_chars=len(codex_instruction),
+        )
+        if skill_response_needs_human_review(skill_agent_response):
+            turns.append((skill_agent_prompt, skill_agent_response, "", "", ""))
+            break
+        if not codex_instruction:
+            codex_instruction = skill_agent_response.strip()
+
+        logger.info("%s: Codex executor turn %s/%s", skill_route, turn_index + 1, max_turns)
+        if session_id:
+            logger.info("%s: continuing Codex executor session %s", skill_route, session_id)
+            log_graph_event(
+                state,
+                "codex_executor_session_continuing",
+                skill_route,
+                turn_index=turn_index + 1,
+                codex_session_id=session_id,
+                codex_instruction_chars=len(codex_instruction),
+            )
+        else:
+            logger.info("%s: starting a new Codex executor session", skill_route)
+            log_graph_event(
+                state,
+                "codex_executor_session_starting",
+                skill_route,
+                turn_index=turn_index + 1,
+                codex_instruction_chars=len(codex_instruction),
+            )
         full_project_context = build_project_software_context(project_dir, diff_max_chars=None)
         previous_session_id = session_id
         codex_result = speak_skill_turn(
-            speaker,
-            prompt,
+            codex_speaker,
+            codex_instruction,
             project_dir=project_dir,
             full_access=full_access,
             session_id=session_id,
         )
-        response = codex_result.response
+        codex_response = codex_result.response
         session_id = codex_result.session_id or session_id
         if session_id and not previous_session_id:
-            logger.info("%s: started Codex session %s", skill_route, session_id)
+            logger.info("%s: started Codex executor session %s", skill_route, session_id)
+            log_graph_event(
+                state,
+                "codex_executor_session_started",
+                skill_route,
+                turn_index=turn_index + 1,
+                codex_session_id=session_id,
+                codex_response_chars=len(codex_response),
+            )
         elif session_id:
-            logger.info("%s: continued Codex session %s", skill_route, session_id)
-        turns.append((prompt, response, full_project_context))
-        if turn_index == 0 and max_turns > 1 and not skill_response_needs_human_review(response):
-            prompt = build_skill_followup_prompt(
+            logger.info("%s: continued Codex executor session %s", skill_route, session_id)
+            log_graph_event(
+                state,
+                "codex_executor_session_continued",
+                skill_route,
+                turn_index=turn_index + 1,
+                codex_session_id=session_id,
+                codex_response_chars=len(codex_response),
+            )
+        turns.append((skill_agent_prompt, skill_agent_response, codex_instruction, codex_response, full_project_context))
+        if turn_index == 0 and max_turns > 1 and not skill_response_needs_human_review(skill_agent_response):
+            skill_agent_prompt = build_skill_agent_control_prompt(
+                build_skill_followup_prompt(
+                    skill_route,
+                    build_skill_conversation_context(
+                        skill_route,
+                        turns,
+                        summarizer,
+                        compact_conversation_tokens,
+                        project_dir,
+                    ),
+                    build_project_software_context(project_dir),
+                    "Continue as the skill controller. Use the Codex executor result as your observation, choose the next smallest Codex instruction, then decide whether to continue, finish, or ask for human review.",
+                )
+            )
+            continue
+        if skill_response_is_done(skill_agent_response):
+            if skill_response_has_completion_audit(skill_agent_response):
+                break
+            if turn_index + 1 >= max_turns:
+                logger.info("%s: done response did not confirm completion audit", skill_route)
+                break
+            skill_agent_prompt = build_skill_agent_control_prompt(build_skill_audit_prompt(skill_route))
+            continue
+        if skill_response_needs_human_review(skill_agent_response):
+            break
+        if not skill_response_should_continue(skill_agent_response):
+            break
+        skill_agent_prompt = build_skill_agent_control_prompt(
+            build_skill_followup_prompt(
                 skill_route,
                 build_skill_conversation_context(
                     skill_route,
@@ -976,52 +1220,76 @@ def run_skill_conversation(
                     project_dir,
                 ),
                 build_project_software_context(project_dir),
-                "Continue as a ReAct agent. Use the first turn's understanding as your observation, choose the next smallest task-specific action, make only that focused change or verification, report the result, then decide whether to continue, finish with audit, or ask for human review.",
+                "Continue as the skill controller. Use the Codex executor result as your observation, choose the next smallest Codex instruction, then decide whether to continue, finish, or ask for human review.",
             )
-            continue
-        if skill_response_is_done(response):
-            if skill_response_has_completion_audit(response):
-                break
-            if turn_index + 1 >= max_turns:
-                logger.info("%s: done response did not confirm completion audit", skill_route)
-                break
-            prompt = build_skill_audit_prompt(skill_route)
-            continue
-        if skill_response_needs_human_review(response):
-            break
-        if not skill_response_should_continue(response):
-            break
-        prompt = build_skill_followup_prompt(
-            skill_route,
-            build_skill_conversation_context(
-                skill_route,
-                turns,
-                summarizer,
-                compact_conversation_tokens,
-                project_dir,
-            ),
-            build_project_software_context(project_dir),
         )
 
     codex_chat = state.get("codex_chat") or ""
-    saved_codex_chat = codex_chat
-    for skill_message, codex_response, full_project_context in turns:
-        codex_chat = append_codex_chat({"codex_chat": codex_chat}, skill_message, codex_response)
-        saved_skill_message = append_saved_history_context(skill_message, full_project_context)
-        saved_codex_chat = append_codex_chat({"codex_chat": saved_codex_chat}, saved_skill_message, codex_response)
-    codex_chat_path = save_codex_chat_history(project_dir, skill_route, saved_codex_chat)
+    saved_codex_chat = ""
+    saved_skill_agent_chat = ""
+    for skill_message, skill_agent_response, codex_instruction, codex_response, _full_project_context in turns:
+        codex_chat = append_skill_codex_chat(
+            {"codex_chat": codex_chat},
+            skill_message,
+            skill_agent_response,
+            codex_instruction,
+            codex_response,
+        )
+        saved_skill_agent_chat = append_skill_agent_chat(
+            {"codex_chat": saved_skill_agent_chat},
+            skill_message,
+            skill_agent_response,
+        )
+        saved_codex_chat = append_codex_executor_chat(
+            {"codex_chat": saved_codex_chat},
+            codex_instruction,
+            codex_response,
+        )
+    codex_chat_path = save_chat_history(project_dir, skill_route, "codex", "Codex Executor Chat History", saved_codex_chat)
+    skill_agent_chat_path = save_chat_history(
+        project_dir,
+        skill_route,
+        "skill",
+        "Skill Agent Chat History",
+        saved_skill_agent_chat,
+    )
+    log_graph_event(
+        state,
+        "chat_history_saved",
+        skill_route,
+        codex_executor_chat_path=str(codex_chat_path) if codex_chat_path else "",
+        skill_agent_chat_path=str(skill_agent_chat_path) if skill_agent_chat_path else "",
+    )
     skill_session_ids = {
         **(state.get("skill_session_ids") or {}),
         **({skill_route: session_id} if session_id else {}),
     }
+    final_skill_status = skill_status_from_response(turns[-1][1] if turns else "")
+    log_graph_event(
+        state,
+        "skill_conversation_finished",
+        skill_route,
+        skill_route=skill_route,
+        skill_turns_completed=len(turns),
+        skill_status=final_skill_status,
+        codex_session_id=session_id or "",
+        skill_agent_session_id=skill_agent_session_id or "",
+    )
 
     return {
         "codex_chat": codex_chat,
         "codex_session_id": session_id or "",
+        "skill_agent_session_id": skill_agent_session_id or "",
         "skill_session_ids": skill_session_ids,
         "codex_chat_path": str(codex_chat_path) if codex_chat_path else "",
+        "codex_executor_chat_path": str(codex_chat_path) if codex_chat_path else "",
+        "skill_agent_chat_path": str(skill_agent_chat_path) if skill_agent_chat_path else "",
         "skill_prompt": skill_prompt,
+        "skill_agent_response": turns[-1][1] if turns else "",
         "skill_response": turns[-1][1] if turns else "",
+        "codex_instruction": turns[-1][2] if turns else "",
+        "codex_response": turns[-1][3] if turns else "",
+        "skill_agent_transcript": render_skill_agent_transcript(turns),
         "skill_transcript": render_skill_transcript(turns),
         "skill_turns_completed": len(turns),
     }
@@ -1048,8 +1316,14 @@ def speak_skill_turn(
     return CodexSessionResult(response=response, session_id=session_id)
 
 
-def save_codex_chat_history(project_dir: str | Path | None, skill_route: str, codex_chat: str) -> Path | None:
-    """Persist the skill/Codex chat transcript in the project for review."""
+def save_chat_history(
+    project_dir: str | Path | None,
+    skill_route: str,
+    chat_kind: str,
+    title: str,
+    chat_history: str,
+) -> Path | None:
+    """Persist one chat transcript in the project's chat history folder."""
 
     if not project_dir:
         return None
@@ -1057,24 +1331,65 @@ def save_codex_chat_history(project_dir: str | Path | None, skill_route: str, co
     history_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     safe_skill_route = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in skill_route)
-    path = history_dir / f"{safe_skill_route}_{timestamp}.md"
-    path.write_text("# Codex Chat History\n\n" + codex_chat.strip() + "\n", encoding="utf-8")
-    logger.info("skill_conversation: saved Codex chat history to %s", path)
+    safe_chat_kind = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in chat_kind)
+    path = history_dir / f"{safe_skill_route}_{safe_chat_kind}_{timestamp}.md"
+    path.write_text(f"# {title}\n\n" + chat_history.strip() + "\n", encoding="utf-8")
+    logger.info("skill_conversation: saved %s chat history to %s", chat_kind, path)
     return path
 
 
-def render_skill_transcript(turns: list[tuple[str, str, str]]) -> str:
-    """Render skill conversation turns into a prompt-friendly transcript."""
+def extract_codex_instruction(skill_agent_response: str) -> str:
+    """Extract the CODEX_INSTRUCTION block from a skill-agent response."""
+
+    marker = "CODEX_INSTRUCTION:"
+    if marker.lower() not in skill_agent_response.lower():
+        return ""
+    lines = skill_agent_response.splitlines()
+    instruction_lines: list[str] = []
+    in_instruction = False
+    for line in lines:
+        if line.strip().lower() == marker.lower():
+            in_instruction = True
+            continue
+        if in_instruction and line.strip().lower().startswith(("skill_status:", "question:", "skill_thinking:")):
+            break
+        if in_instruction:
+            instruction_lines.append(line)
+    return "\n".join(instruction_lines).strip()
+
+
+def render_skill_agent_transcript(turns: list[tuple[str, str, str, str, str]]) -> str:
+    """Render only the skill-agent controller side of the conversation."""
 
     sections: list[str] = []
-    for prompt, response, _full_project_context in turns:
-        sections.append(f"skill:\n{prompt.strip()}\n\ncodex:\n{response.strip()}")
+    for skill_prompt, skill_response, _codex_instruction, _codex_response, _full_project_context in turns:
+        sections.append(f"skill_agent_prompt:\n{skill_prompt.strip()}\n\nskill_agent:\n{skill_response.strip()}")
+    return "\n\n".join(sections)
+
+
+def render_skill_transcript(turns: list[tuple[str, str, str, str, str]]) -> str:
+    """Render skill-agent and Codex-executor turns into a prompt-friendly transcript."""
+
+    sections: list[str] = []
+    for skill_prompt, skill_response, codex_instruction, codex_response, _full_project_context in turns:
+        sections.append(
+            "\n\n".join(
+                part
+                for part in (
+                    f"skill_agent_prompt:\n{skill_prompt.strip()}",
+                    f"skill_agent:\n{skill_response.strip()}",
+                    f"codex_instruction:\n{codex_instruction.strip()}" if codex_instruction.strip() else "",
+                    f"codex:\n{codex_response.strip()}" if codex_response.strip() else "",
+                )
+                if part
+            )
+        )
     return "\n\n".join(sections)
 
 
 def build_skill_conversation_context(
     skill_route: str,
-    turns: list[tuple[str, str, str]],
+    turns: list[tuple[str, str, str, str, str]],
     summarizer: CodexSpeaker,
     compact_conversation_tokens: int,
     project_dir: str | Path | None = None,
@@ -1160,6 +1475,18 @@ def skill_response_should_continue(response: str) -> bool:
     """Return whether a skill response asks for another Codex turn."""
 
     return "skill_status: continue" in response.lower()
+
+
+def skill_status_from_response(response: str) -> str:
+    """Return the skill status marker found in a response."""
+
+    if skill_response_needs_human_review(response):
+        return "human_review"
+    if skill_response_is_done(response):
+        return "done"
+    if skill_response_should_continue(response):
+        return "continue"
+    return "unknown"
 
 
 def extract_skill_human_question(response: str) -> str:

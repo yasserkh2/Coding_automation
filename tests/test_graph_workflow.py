@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 import tempfile
 import subprocess
@@ -41,6 +42,21 @@ def compact_conversation_response() -> str:
     )
 
 
+def skill_agent_response(codex_instruction: str, status: str = "done", extra: str = "") -> str:
+    sections = [
+        "SKILL_THINKING:",
+        "- Selected the next Codex executor instruction.",
+        "",
+        "CODEX_INSTRUCTION:",
+        codex_instruction,
+        "",
+    ]
+    if extra:
+        sections.extend([extra, ""])
+    sections.append(f"SKILL_STATUS: {status}")
+    return "\n".join(sections)
+
+
 class FakeSpeaker:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str | Path | None, bool]] = []
@@ -70,22 +86,21 @@ class FakeSpeaker:
                 return "frontend"
             return "system_designer"
         if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
-            return "\n".join(
-                [
-                    "Skill work completed.",
-                    "Audit checked: README.md, Done_AI_Tasks.md, Current_Task.md, config.yml, .env.example, .env.",
-                    "",
-                    "SKILL_STATUS: done",
-                ]
+            return skill_agent_response(
+                "\n".join(
+                    [
+                        "Complete the requested skill work.",
+                        "Audit checked: README.md, Done_AI_Tasks.md, Current_Task.md, config.yml, .env.example, .env.",
+                    ]
+                ),
+                "done",
+                "Audit checked: README.md, Done_AI_Tasks.md, Current_Task.md, config.yml, .env.example, .env.",
             )
         if prompt.startswith("Before the ") and "skill can be marked done" in prompt:
-            return "\n".join(
-                [
-                    "Completion audit finished.",
-                    "Checked README.md, Done_AI_Tasks.md, Current_Task.md, config.yml, .env.example, and .env.",
-                    "",
-                    "SKILL_STATUS: done",
-                ]
+            return skill_agent_response(
+                "Perform the final completion audit and update handoff files if needed.",
+                "done",
+                "Checked README.md, Done_AI_Tasks.md, Current_Task.md, config.yml, .env.example, and .env.",
             )
         return f"handled: {prompt}"
 
@@ -109,16 +124,13 @@ class ContinuingSkillSpeaker(FakeSpeaker):
         if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
             self.skill_calls += 1
             if self.skill_calls == 1:
-                return "Need another backend pass.\n\nSKILL_STATUS: continue"
-            return "Backend pass complete.\n\nSKILL_STATUS: done"
+                return skill_agent_response("Need another backend pass.", "continue")
+            return skill_agent_response("Backend pass complete.", "done")
         if prompt.startswith("Before the backend skill can be marked done"):
-            return "\n".join(
-                [
-                    "Completion audit finished.",
-                    "Checked README.md, Done_AI_Tasks.md, Current_Task.md, config.yml, .env.example, and .env.",
-                    "",
-                    "SKILL_STATUS: done",
-                ]
+            return skill_agent_response(
+                "Completion audit finished.",
+                "done",
+                "Checked README.md, Done_AI_Tasks.md, Current_Task.md, config.yml, .env.example, and .env.",
             )
         return f"handled: {prompt}"
 
@@ -128,6 +140,7 @@ class SessionSkillSpeaker(FakeSpeaker):
         super().__init__()
         self.session_calls: list[tuple[str, str | None]] = []
         self.skill_calls = 0
+        self.executor_calls: list[tuple[str, str | None]] = []
 
     def speak_in_session(
         self,
@@ -138,30 +151,19 @@ class SessionSkillSpeaker(FakeSpeaker):
     ) -> CodexSessionResult:
         self.calls.append((prompt, project_dir, full_access))
         self.session_calls.append((prompt, session_id))
-        if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
+        if "Skill-agent control contract" in prompt:
             self.skill_calls += 1
             if self.skill_calls == 1:
                 return CodexSessionResult(
-                    response="Need another backend pass.\n\nSKILL_STATUS: continue",
-                    session_id="backend-session-1",
+                    response=skill_agent_response("Need another backend pass.", "continue"),
+                    session_id="backend-skill-agent-session-1",
                 )
             return CodexSessionResult(
-                response="Backend pass complete.\n\nSKILL_STATUS: done",
+                response=skill_agent_response("Backend pass complete.", "done"),
                 session_id=session_id,
             )
-        if prompt.startswith("Before the backend skill can be marked done"):
-            return CodexSessionResult(
-                response="\n".join(
-                    [
-                        "Completion audit finished.",
-                        "Checked README.md, Done_AI_Tasks.md, Current_Task.md, config.yml, .env.example, and .env.",
-                        "",
-                        "SKILL_STATUS: done",
-                    ]
-                ),
-                session_id=session_id,
-            )
-        return CodexSessionResult(response=f"handled: {prompt}", session_id=session_id)
+        self.executor_calls.append((prompt, session_id))
+        return CodexSessionResult(response=f"handled: {prompt}", session_id=session_id or "backend-session-1")
 
 
 class AlwaysContinuingSkillSpeaker(FakeSpeaker):
@@ -180,7 +182,7 @@ class AlwaysContinuingSkillSpeaker(FakeSpeaker):
             return compact_conversation_response()
         if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
             self.skill_calls += 1
-            return f"Still working turn {self.skill_calls}.\n\nSKILL_STATUS: continue"
+            return skill_agent_response(f"Still working turn {self.skill_calls}.", "continue")
         return f"handled: {prompt}"
 
 
@@ -198,6 +200,9 @@ class HumanReviewSkillSpeaker(FakeSpeaker):
             return "\n".join(
                 [
                     "I need the product owner to choose the auth policy before implementation.",
+                    "",
+                    "CODEX_INSTRUCTION:",
+                    "",
                     "",
                     "QUESTION: Should the chatbot API require call-center SSO from day one?",
                     "SKILL_STATUS: human_review",
@@ -359,7 +364,7 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("Never add real secrets to .env", result["skill_prompt"])
         self.assertEqual(result["skill_turns_completed"], 2)
         self.assertIn("SKILL_STATUS: done", result["skill_response"])
-        self.assertEqual(len(speaker.calls), 4)
+        self.assertEqual(len(speaker.calls), 6)
         self.assertIn("Prepare a concise, task-specific handoff", speaker.calls[0][0])
         self.assertIn("Incoming task:\n# Task\nAdd login", speaker.calls[0][0])
         self.assertIn("Inspect only the project files needed", speaker.calls[0][0])
@@ -383,11 +388,12 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("Git status:", speaker.calls[2][0])
         self.assertIn("Git diff summary:", speaker.calls[2][0])
         self.assertIn("ReAct operating loop:", speaker.calls[2][0])
-        self.assertIn("Continue as a ReAct agent", speaker.calls[3][0])
-        self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
-        self.assertIn("Fresh project software context after the previous Codex run:", speaker.calls[3][0])
-        self.assertIn("Project structure:", speaker.calls[3][0])
-        self.assertIn("Git diff:", speaker.calls[3][0])
+        self.assertIn("Complete the requested skill work.", speaker.calls[3][0])
+        self.assertIn("Continue as the skill controller", speaker.calls[4][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[4][0])
+        self.assertIn("Fresh project software context after the previous Codex run:", speaker.calls[4][0])
+        self.assertIn("Project structure:", speaker.calls[4][0])
+        self.assertIn("Git diff:", speaker.calls[4][0])
 
     def test_ai_orchestrator_can_route_to_requested_frontend_skill(self) -> None:
         speaker = FakeSpeaker()
@@ -421,9 +427,9 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("Codex chat history:\nNo previous skill/codex chat history.", result["skill_prompt"])
         self.assertIn("Current task:\n# Current Task", result["skill_prompt"])
         self.assertEqual(result["skill_turns_completed"], 2)
-        self.assertEqual(len(speaker.calls), 3)
-        self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
-        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
+        self.assertEqual(len(speaker.calls), 5)
+        self.assertIn("Continue as the skill controller", speaker.calls[3][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
 
     def test_ai_orchestrator_prefers_agent_named_in_task_over_classifier(self) -> None:
         speaker = FakeSpeaker()
@@ -440,9 +446,9 @@ class CodingGraphTests(unittest.TestCase):
 
         self.assertEqual(result["skill_route"], "frontend")
         self.assertEqual(result["response"], "Frontend skill is ready to handle Current_Task.md.")
-        self.assertEqual(len(speaker.calls), 3)
-        self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
-        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
+        self.assertEqual(len(speaker.calls), 5)
+        self.assertIn("Continue as the skill controller", speaker.calls[3][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
 
     def test_ai_orchestrator_can_route_to_system_designer_named_in_task(self) -> None:
         speaker = FakeSpeaker()
@@ -459,9 +465,9 @@ class CodingGraphTests(unittest.TestCase):
 
         self.assertEqual(result["skill_route"], "system_designer")
         self.assertEqual(result["response"], "System designer skill is ready to handle Current_Task.md.")
-        self.assertEqual(len(speaker.calls), 3)
-        self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
-        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
+        self.assertEqual(len(speaker.calls), 5)
+        self.assertIn("Continue as the skill controller", speaker.calls[3][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
 
     def test_ai_orchestrator_can_route_to_requested_data_analysis_skill(self) -> None:
         speaker = FakeSpeaker()
@@ -638,9 +644,9 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["response"], "Backend skill is ready to handle Current_Task.md.")
         self.assertIn("You are the backend skill ReAct agent", result["skill_prompt"])
         self.assertEqual(result["skill_turns_completed"], 2)
-        self.assertEqual(len(speaker.calls), 3)
-        self.assertIn("Continue as a ReAct agent", speaker.calls[2][0])
-        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
+        self.assertEqual(len(speaker.calls), 5)
+        self.assertIn("Continue as the skill controller", speaker.calls[3][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
 
     def test_skill_node_can_continue_codex_conversation(self) -> None:
         speaker = ContinuingSkillSpeaker()
@@ -661,34 +667,57 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["skill_turns_completed"], 3)
         self.assertIn("SKILL_STATUS: done", result["skill_response"])
         self.assertIn("Checked README.md", result["skill_response"])
-        self.assertIn("skill:\nYou are the backend skill ReAct agent", result["skill_transcript"])
-        self.assertIn("codex:\nNeed another backend pass.", result["skill_transcript"])
-        self.assertIn("skill:\nContinue the backend skill ReAct-agent session", result["skill_transcript"])
-        self.assertIn("codex:\nBackend pass complete.", result["skill_transcript"])
-        self.assertIn("skill:\nBefore the backend skill can be marked done", result["skill_transcript"])
-        self.assertIn("skill:\nYou are the backend skill ReAct agent", result["codex_chat"])
-        self.assertIn("codex:\nCompletion audit finished.", result["codex_chat"])
-        self.assertIn("Continue the backend skill ReAct-agent session", speaker.calls[2][0])
-        self.assertIn("Conversation context:", speaker.calls[2][0])
-        self.assertIn("Fresh project software context after the previous Codex run:", speaker.calls[2][0])
-        self.assertIn("Project structure:", speaker.calls[2][0])
-        self.assertIn("Git diff:", speaker.calls[2][0])
-        self.assertIn("Compact conversation: not triggered.", speaker.calls[2][0])
-        self.assertIn("Full skill chat history:", speaker.calls[2][0])
-        self.assertIn("Need another backend pass.", speaker.calls[2][0])
-        self.assertIn("Completion audit:", speaker.calls[2][0])
-        self.assertIn("README.md, Done_AI_Tasks.md, Current_Task.md", speaker.calls[2][0])
-        self.assertIn("Before the backend skill can be marked done", speaker.calls[3][0])
-        self.assertIn("README.md", speaker.calls[3][0])
-        self.assertIn(".env.example with required placeholder keys", speaker.calls[3][0])
-        self.assertIn(".env placeholders only", speaker.calls[3][0])
+        self.assertIn("skill_agent_prompt:\nYou are the backend skill ReAct agent", result["skill_transcript"])
+        self.assertIn("codex_instruction:\nNeed another backend pass.", result["skill_transcript"])
+        self.assertIn("skill_agent_prompt:\nContinue the backend skill ReAct-agent session", result["skill_transcript"])
+        self.assertIn("codex_instruction:\nBackend pass complete.", result["skill_transcript"])
+        self.assertIn("skill_agent_prompt:\nBefore the backend skill can be marked done", result["skill_transcript"])
+        self.assertIn("skill_agent_prompt:\nYou are the backend skill ReAct agent", result["codex_chat"])
+        self.assertIn("codex:\nhandled: Completion audit finished.", result["codex_chat"])
+        self.assertIn("Continue the backend skill ReAct-agent session", speaker.calls[3][0])
+        self.assertIn("Conversation context:", speaker.calls[3][0])
+        self.assertIn("Fresh project software context after the previous Codex run:", speaker.calls[3][0])
+        self.assertIn("Project structure:", speaker.calls[3][0])
+        self.assertIn("Git diff:", speaker.calls[3][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
+        self.assertIn("Full skill chat history:", speaker.calls[3][0])
+        self.assertIn("Need another backend pass.", speaker.calls[3][0])
+        self.assertIn("Completion audit:", speaker.calls[3][0])
+        self.assertIn("README.md, Done_AI_Tasks.md, Current_Task.md", speaker.calls[3][0])
+        self.assertIn("Before the backend skill can be marked done", speaker.calls[5][0])
+        self.assertIn("README.md", speaker.calls[5][0])
+        self.assertIn(".env.example with required placeholder keys", speaker.calls[5][0])
+        self.assertIn(".env placeholders only", speaker.calls[5][0])
         chat_history_dir = project_dir / "Chats_History"
         chat_history_files = list(chat_history_dir.glob("backend_*.md"))
-        self.assertEqual(len(chat_history_files), 1)
-        chat_history_path = chat_history_files[0]
-        self.assertEqual(result["codex_chat_path"], str(chat_history_path))
-        self.assertTrue(chat_history_path.exists())
-        self.assertIn("codex:\nCompletion audit finished.", chat_history_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(chat_history_files), 2)
+        codex_chat_path = Path(result["codex_chat_path"])
+        skill_chat_path = Path(result["skill_agent_chat_path"])
+        self.assertEqual(result["codex_executor_chat_path"], str(codex_chat_path))
+        self.assertTrue(codex_chat_path.exists())
+        self.assertTrue(skill_chat_path.exists())
+        self.assertIn("backend_codex_", codex_chat_path.name)
+        self.assertIn("backend_skill_", skill_chat_path.name)
+        self.assertIn("codex:\nhandled: Completion audit finished.", codex_chat_path.read_text(encoding="utf-8"))
+        self.assertIn("skill_agent:\nSKILL_THINKING", skill_chat_path.read_text(encoding="utf-8"))
+        graph_log_path = Path(result["graph_log_path"])
+        self.assertTrue(graph_log_path.exists())
+        graph_events = [
+            json.loads(line)
+            for line in graph_log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        event_names = [event["event"] for event in graph_events]
+        self.assertIn("graph_started", event_names)
+        self.assertIn("skill_agent_session_starting", event_names)
+        self.assertIn("codex_executor_session_starting", event_names)
+        self.assertIn("skill_status_detected", event_names)
+        self.assertIn("chat_history_saved", event_names)
+        self.assertIn("skill_conversation_finished", event_names)
+        self.assertIn("graph_finished", event_names)
+        saved_event = next(event for event in graph_events if event["event"] == "chat_history_saved")
+        self.assertEqual(saved_event["codex_executor_chat_path"], str(codex_chat_path))
+        self.assertEqual(saved_event["skill_agent_chat_path"], str(skill_chat_path))
 
     def test_skill_node_uses_same_codex_session_for_followup_turns(self) -> None:
         speaker = SessionSkillSpeaker()
@@ -708,7 +737,7 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["codex_session_id"], "backend-session-1")
         self.assertEqual(result["skill_session_ids"], {"backend": "backend-session-1"})
         self.assertEqual(
-            [session_id for _prompt, session_id in speaker.session_calls],
+            [session_id for _prompt, session_id in speaker.executor_calls],
             [None, "backend-session-1", "backend-session-1"],
         )
 
@@ -729,13 +758,13 @@ class CodingGraphTests(unittest.TestCase):
         )
 
         self.assertEqual(result["skill_turns_completed"], 3)
-        self.assertIn("Compact conversation for this backend", speaker.calls[2][0])
-        self.assertIn("Transcript:", speaker.calls[2][0])
-        self.assertIn("Need another backend pass.", speaker.calls[2][0])
-        self.assertIn("Continue the backend skill ReAct-agent session", speaker.calls[3][0])
-        self.assertIn("Compact conversation: triggered.", speaker.calls[3][0])
-        self.assertIn("Current focus:", speaker.calls[3][0])
-        self.assertIn("- Need another backend pass.", speaker.calls[3][0])
+        self.assertIn("Compact conversation for this backend", speaker.calls[3][0])
+        self.assertIn("Transcript:", speaker.calls[3][0])
+        self.assertIn("Need another backend pass.", speaker.calls[3][0])
+        self.assertIn("Continue the backend skill ReAct-agent session", speaker.calls[4][0])
+        self.assertIn("Compact conversation: triggered.", speaker.calls[4][0])
+        self.assertIn("Current focus:", speaker.calls[4][0])
+        self.assertIn("- Need another backend pass.", speaker.calls[4][0])
 
     def test_skill_max_turns_defaults_to_config_value(self) -> None:
         speaker = AlwaysContinuingSkillSpeaker()
@@ -754,8 +783,9 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["skill_turns_completed"], 3)
         self.assertEqual(speaker.skill_calls, 3)
         chat_history_files = list((project_dir / "Chats_History").glob("backend_*.md"))
-        self.assertEqual(len(chat_history_files), 1)
-        self.assertIn("Still working turn 3", chat_history_files[0].read_text(encoding="utf-8"))
+        self.assertEqual(len(chat_history_files), 2)
+        skill_history = Path(result["skill_agent_chat_path"]).read_text(encoding="utf-8")
+        self.assertIn("Still working turn 3", skill_history)
 
     def test_skill_chat_history_creates_new_file_each_session(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
@@ -777,9 +807,9 @@ class CodingGraphTests(unittest.TestCase):
         )
 
         chat_history_files = list((project_dir / "Chats_History").glob("backend_*.md"))
-        self.assertEqual(len(chat_history_files), 2)
+        self.assertEqual(len(chat_history_files), 4)
 
-    def test_saved_skill_chat_history_includes_uncapped_git_diff(self) -> None:
+    def test_saved_chat_history_only_includes_context_seen_by_each_chat(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         project_dir = Path(temp_dir.name) / "demo"
@@ -820,10 +850,13 @@ class CodingGraphTests(unittest.TestCase):
 
         self.assertIn("... truncated; inspect project files for full diff.", speaker.calls[1][0])
         self.assertNotIn(large_diff_tail, speaker.calls[1][0])
-        chat_history_path = Path(result["codex_chat_path"])
-        chat_history = chat_history_path.read_text(encoding="utf-8")
-        self.assertIn("Full project software context saved for history:", chat_history)
-        self.assertIn(large_diff_tail, chat_history)
+        codex_history = Path(result["codex_executor_chat_path"]).read_text(encoding="utf-8")
+        skill_history = Path(result["skill_agent_chat_path"]).read_text(encoding="utf-8")
+        self.assertNotIn("Full project software context saved for history:", codex_history)
+        self.assertNotIn("Full project software context saved for history:", skill_history)
+        self.assertNotIn(large_diff_tail, codex_history)
+        self.assertNotIn(large_diff_tail, skill_history)
+        self.assertIn("... truncated; inspect project files for full diff.", skill_history)
 
     def test_skill_max_turns_can_be_configured(self) -> None:
         speaker = AlwaysContinuingSkillSpeaker()
@@ -896,14 +929,14 @@ class CodingGraphTests(unittest.TestCase):
         self.assertIn("You are the system designer skill ReAct agent", result["skill_prompt"])
         self.assertIn("Codex chat history:\nNo previous skill/codex chat history.", result["skill_prompt"])
         self.assertEqual(result["skill_turns_completed"], 2)
-        self.assertEqual(len(speaker.calls), 4)
+        self.assertEqual(len(speaker.calls), 6)
         self.assertIn("Classify the prepared task", speaker.calls[1][0])
         self.assertIn(
             "Allowed routes:\n- backend\n- frontend\n- system_designer\n- data_analysis\n- ml_data_preparation\n- model_training\n- model_evaluation",
             speaker.calls[1][0],
         )
-        self.assertIn("Continue as a ReAct agent", speaker.calls[3][0])
-        self.assertIn("Compact conversation: not triggered.", speaker.calls[3][0])
+        self.assertIn("Continue as the skill controller", speaker.calls[4][0])
+        self.assertIn("Compact conversation: not triggered.", speaker.calls[4][0])
 
     def test_graph_requires_task_md(self) -> None:
         graph = create_coding_graph(FakeSpeaker())
