@@ -52,6 +52,8 @@ class CodingState(TypedDict, total=False):
     skill_turns_completed: int
     skill_max_turns: int
     compact_conversation_tokens: int
+    codex_session_id: str
+    skill_session_ids: dict[str, str]
     codex_chat_path: str
     skill_human_question: str
     skill_completion_route: SkillCompletionRoute

@@ -5,6 +5,7 @@ import tempfile
 import subprocess
 from pathlib import Path
 
+from codex.ports import CodexSessionResult
 from graph import create_coding_graph, run_coding_graph
 from graph.cli import parse_args
 
@@ -120,6 +121,47 @@ class ContinuingSkillSpeaker(FakeSpeaker):
                 ]
             )
         return f"handled: {prompt}"
+
+
+class SessionSkillSpeaker(FakeSpeaker):
+    def __init__(self) -> None:
+        super().__init__()
+        self.session_calls: list[tuple[str, str | None]] = []
+        self.skill_calls = 0
+
+    def speak_in_session(
+        self,
+        prompt: str,
+        project_dir: str | Path | None = None,
+        full_access: bool = False,
+        session_id: str | None = None,
+    ) -> CodexSessionResult:
+        self.calls.append((prompt, project_dir, full_access))
+        self.session_calls.append((prompt, session_id))
+        if is_skill_prompt(prompt) or prompt.startswith("Continue the "):
+            self.skill_calls += 1
+            if self.skill_calls == 1:
+                return CodexSessionResult(
+                    response="Need another backend pass.\n\nSKILL_STATUS: continue",
+                    session_id="backend-session-1",
+                )
+            return CodexSessionResult(
+                response="Backend pass complete.\n\nSKILL_STATUS: done",
+                session_id=session_id,
+            )
+        if prompt.startswith("Before the backend skill can be marked done"):
+            return CodexSessionResult(
+                response="\n".join(
+                    [
+                        "Completion audit finished.",
+                        "Checked README.md, Done_AI_Tasks.md, Current_Task.md, config.yml, .env.example, and .env.",
+                        "",
+                        "SKILL_STATUS: done",
+                    ]
+                ),
+                session_id=session_id,
+            )
+        return CodexSessionResult(response=f"handled: {prompt}", session_id=session_id)
 
 
 class AlwaysContinuingSkillSpeaker(FakeSpeaker):
@@ -647,6 +689,28 @@ class CodingGraphTests(unittest.TestCase):
         self.assertEqual(result["codex_chat_path"], str(chat_history_path))
         self.assertTrue(chat_history_path.exists())
         self.assertIn("codex:\nCompletion audit finished.", chat_history_path.read_text(encoding="utf-8"))
+
+    def test_skill_node_uses_same_codex_session_for_followup_turns(self) -> None:
+        speaker = SessionSkillSpeaker()
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        project_dir = Path(temp_dir.name) / "demo"
+        project_dir.mkdir()
+
+        result = run_coding_graph(
+            "# Task\nAdd backend endpoint",
+            project_dir=project_dir,
+            requested_skill="backend",
+            skill_max_turns=3,
+            speaker=speaker,
+        )
+
+        self.assertEqual(result["codex_session_id"], "backend-session-1")
+        self.assertEqual(result["skill_session_ids"], {"backend": "backend-session-1"})
+        self.assertEqual(
+            [session_id for _prompt, session_id in speaker.session_calls],
+            [None, "backend-session-1", "backend-session-1"],
+        )
 
     def test_skill_followup_compacts_conversation_after_token_threshold(self) -> None:
         speaker = ContinuingSkillSpeaker()

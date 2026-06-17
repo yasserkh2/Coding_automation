@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Protocol
 from venv import EnvBuilder
 
-from codex.ports import CodexSpeaker
+from codex.ports import CodexSessionResult, CodexSpeaker
 
 from .prompt_catalog import render_prompt
 from .state import CodingState, TaskStatus, TaskType
@@ -941,11 +941,29 @@ def run_skill_conversation(
     full_access = state.get("full_access", False)
     turns: list[tuple[str, str, str]] = []
     prompt = skill_prompt
+    session_id = (state.get("skill_session_ids") or {}).get(skill_route) or state.get("codex_session_id")
 
     for turn_index in range(max_turns):
         logger.info("%s: Codex conversation turn %s/%s", skill_route, turn_index + 1, max_turns)
+        if session_id:
+            logger.info("%s: continuing Codex session %s", skill_route, session_id)
+        else:
+            logger.info("%s: starting a new Codex session", skill_route)
         full_project_context = build_project_software_context(project_dir, diff_max_chars=None)
-        response = speaker.speak(prompt, project_dir=project_dir, full_access=full_access)
+        previous_session_id = session_id
+        codex_result = speak_skill_turn(
+            speaker,
+            prompt,
+            project_dir=project_dir,
+            full_access=full_access,
+            session_id=session_id,
+        )
+        response = codex_result.response
+        session_id = codex_result.session_id or session_id
+        if session_id and not previous_session_id:
+            logger.info("%s: started Codex session %s", skill_route, session_id)
+        elif session_id:
+            logger.info("%s: continued Codex session %s", skill_route, session_id)
         turns.append((prompt, response, full_project_context))
         if turn_index == 0 and max_turns > 1 and not skill_response_needs_human_review(response):
             prompt = build_skill_followup_prompt(
@@ -992,15 +1010,42 @@ def run_skill_conversation(
         saved_skill_message = append_saved_history_context(skill_message, full_project_context)
         saved_codex_chat = append_codex_chat({"codex_chat": saved_codex_chat}, saved_skill_message, codex_response)
     codex_chat_path = save_codex_chat_history(project_dir, skill_route, saved_codex_chat)
+    skill_session_ids = {
+        **(state.get("skill_session_ids") or {}),
+        **({skill_route: session_id} if session_id else {}),
+    }
 
     return {
         "codex_chat": codex_chat,
+        "codex_session_id": session_id or "",
+        "skill_session_ids": skill_session_ids,
         "codex_chat_path": str(codex_chat_path) if codex_chat_path else "",
         "skill_prompt": skill_prompt,
         "skill_response": turns[-1][1] if turns else "",
         "skill_transcript": render_skill_transcript(turns),
         "skill_turns_completed": len(turns),
     }
+
+
+def speak_skill_turn(
+    speaker: CodexSpeaker,
+    prompt: str,
+    project_dir: str | Path | None = None,
+    full_access: bool = False,
+    session_id: str | None = None,
+) -> CodexSessionResult:
+    """Speak with Codex, preferring a resumable session when supported."""
+
+    speak_in_session = getattr(speaker, "speak_in_session", None)
+    if callable(speak_in_session):
+        return speak_in_session(
+            prompt,
+            project_dir=project_dir,
+            full_access=full_access,
+            session_id=session_id,
+        )
+    response = speaker.speak(prompt, project_dir=project_dir, full_access=full_access)
+    return CodexSessionResult(response=response, session_id=session_id)
 
 
 def save_codex_chat_history(project_dir: str | Path | None, skill_route: str, codex_chat: str) -> Path | None:

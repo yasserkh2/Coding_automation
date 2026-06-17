@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from .config import CodexConfig
+from .ports import CodexSessionResult
 from .runner import CodexCliRunner
 
 
@@ -62,6 +63,24 @@ class CodexService:
 
         sandbox = "danger-full-access" if full_access else "workspace-write"
         return self.run_codex_cli(prompt, project_dir, sandbox, full_access)
+
+    def speak_in_session(
+        self,
+        prompt: str,
+        project_dir: str | Path | None = None,
+        full_access: bool = False,
+        session_id: str | None = None,
+    ) -> CodexSessionResult:
+        """Send a prompt to a persisted Codex thread, resuming it when possible."""
+
+        sandbox = "danger-full-access" if full_access else "workspace-write"
+        return self.runner.run_in_session(
+            prompt,
+            project_dir=project_dir,
+            sandbox=sandbox,
+            full_env=full_access,
+            session_id=session_id,
+        )
 
 
 def run_codex_cli(

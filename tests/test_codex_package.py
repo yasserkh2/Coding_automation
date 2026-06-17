@@ -8,8 +8,9 @@ from unittest.mock import patch
 
 from codex.binary import CodexBinaryResolver
 from codex.config import CodexConfig
+from codex.ports import CodexSessionResult
 from codex.project_config import load_project_config
-from codex.runner import CodexCliRunner
+from codex.runner import CodexCliRunner, extract_last_agent_message, extract_thread_id, parse_codex_jsonl
 from codex.service import CodexService
 
 
@@ -143,6 +144,58 @@ class CodexCliRunnerTests(unittest.TestCase):
         self.assertIn("shell_environment_policy.inherit=all", command)
         self.assertEqual(command[-1], "Reply with OK only.")
 
+    def test_builds_json_session_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = CodexConfig(root=root, env_file=root / ".env", codex_home=root / ".codex-home")
+            runner = CodexCliRunner(config=config, binary_resolver=CodexBinaryResolver())
+
+            with patch.object(runner.binary_resolver, "resolve", return_value="/bin/codex"):
+                command = runner._build_command(  # pylint: disable=protected-access
+                    "Start a skill session.",
+                    root,
+                    "workspace-write",
+                    False,
+                    json_output=True,
+                )
+
+        self.assertIn("--json", command)
+        self.assertLess(command.index("--json"), len(command) - 1)
+        self.assertEqual(command[-1], "Start a skill session.")
+
+    def test_builds_resume_session_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = CodexConfig(root=root, env_file=root / ".env", codex_home=root / ".codex-home")
+            runner = CodexCliRunner(config=config, binary_resolver=CodexBinaryResolver())
+
+            with patch.object(runner.binary_resolver, "resolve", return_value="/bin/codex"):
+                command = runner._build_resume_command(  # pylint: disable=protected-access
+                    "Continue the same skill session.",
+                    "session-123",
+                    True,
+                )
+
+        self.assertEqual(command[:3], ["/bin/codex", "exec", "resume"])
+        self.assertIn("--skip-git-repo-check", command)
+        self.assertIn("shell_environment_policy.inherit=all", command)
+        self.assertIn("--json", command)
+        self.assertEqual(command[-2:], ["session-123", "Continue the same skill session."])
+
+    def test_parses_codex_json_session_output(self) -> None:
+        events = parse_codex_jsonl(
+            "\n".join(
+                [
+                    "not json",
+                    '{"type":"thread.started","thread_id":"session-123"}',
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"Done."}}',
+                ]
+            )
+        )
+
+        self.assertEqual(extract_thread_id(events), "session-123")
+        self.assertEqual(extract_last_agent_message(events), "Done.")
+
     def test_codex_service_passes_node_name_to_runner(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -161,6 +214,28 @@ class CodexCliRunnerTests(unittest.TestCase):
 
         self.assertEqual(service.node_name, "backend")
         self.assertEqual(service.runner.node_name, "backend")
+
+    def test_codex_service_can_speak_in_session(self) -> None:
+        class FakeRunner:
+            node_name = "backend"
+
+            def run_in_session(self, prompt, project_dir, sandbox, full_env, session_id):
+                return CodexSessionResult(
+                    response=f"handled: {prompt}",
+                    session_id=session_id or "new-session",
+                )
+
+        service = CodexService(runner=FakeRunner(), node_name="backend")
+
+        result = service.speak_in_session(
+            "Continue",
+            project_dir=".",
+            full_access=True,
+            session_id="existing-session",
+        )
+
+        self.assertEqual(result.response, "handled: Continue")
+        self.assertEqual(result.session_id, "existing-session")
 
 
 if __name__ == "__main__":
